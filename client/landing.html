@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MobiClaw - AI-Powered Phone Control</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            border: 'hsl(240 3.7% 15.9%)',
+            input: 'hsl(240 3.7% 15.9%)',
+            ring: 'hsl(240 4.9% 83.9%)',
+            background: 'hsl(240 10% 3.9%)',
+            foreground: 'hsl(0 0% 98%)',
+            card: { DEFAULT: 'hsl(240 10% 3.9%)', foreground: 'hsl(0 0% 98%)' },
+            muted: { DEFAULT: 'hsl(240 3.7% 15.9%)', foreground: 'hsl(240 5% 64.9%)' },
+          },
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <style>
+    .gradient-bg {
+      background: radial-gradient(ellipse at top, hsl(270 40% 12%) 0%, hsl(240 10% 3.9%) 60%);
+    }
+    .glow {
+      box-shadow: 0 0 60px hsl(270 60% 30% / 0.15), 0 0 120px hsl(270 60% 20% / 0.1);
+    }
+    .feature-card:hover {
+      border-color: hsl(270 50% 40% / 0.4);
+      background: hsl(270 30% 10% / 0.3);
+    }
+  </style>
+</head>
+<body class="bg-background text-foreground min-h-screen gradient-bg antialiased">
+
+  <div class="min-h-screen flex flex-col">
+
+    <!-- Nav -->
+    <nav class="flex items-center justify-between px-8 py-5">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+          <i data-lucide="smartphone" class="w-5 h-5 text-purple-400"></i>
+        </div>
+        <span class="text-lg font-bold tracking-tight">MobiClaw</span>
+      </div>
+      <a href="https://github.com/kenken64/MobiClaw" target="_blank" class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <i data-lucide="github" class="w-4 h-4"></i>
+        GitHub
+      </a>
+    </nav>
+
+    <!-- Hero -->
+    <main class="flex-1 flex flex-col items-center justify-center px-6 -mt-10">
+      <div class="text-center max-w-2xl mb-10">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-purple-500/20 bg-purple-500/5 text-xs text-purple-300 mb-6">
+          <i data-lucide="sparkles" class="w-3 h-3"></i>
+          AI-Powered Android Control
+        </div>
+        <h1 class="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
+          Control your phone<br>
+          <span class="bg-gradient-to-r from-purple-400 to-emerald-400 bg-clip-text text-transparent">with natural language</span>
+        </h1>
+        <p class="text-muted-foreground text-base sm:text-lg max-w-lg mx-auto">
+          Mirror your Android screen in the browser. Give the AI a goal in plain English &mdash; it reads the screen, thinks, and acts.
+        </p>
+      </div>
+
+      <!-- API Key Card -->
+      <div class="w-full max-w-md glow">
+        <div class="rounded-2xl border border-border bg-card p-6 space-y-5">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+              <i data-lucide="key-round" class="w-5 h-5 text-emerald-400"></i>
+            </div>
+            <div>
+              <h2 class="text-sm font-semibold">Enter your API Key</h2>
+              <p class="text-xs text-muted-foreground">Required for AI agent to work</p>
+            </div>
+          </div>
+
+          <!-- Provider Select -->
+          <div>
+            <label class="text-xs text-muted-foreground mb-1.5 block">Provider</label>
+            <select id="provider-select" class="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30">
+              <option value="gemini" selected>Google Gemini (Recommended)</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+          </div>
+
+          <!-- API Key Input -->
+          <div>
+            <label class="text-xs text-muted-foreground mb-1.5 block">API Key</label>
+            <div class="relative">
+              <input type="password" id="api-key-input" placeholder="Paste your API key here..."
+                class="w-full h-10 rounded-lg border border-input bg-background pl-3 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30">
+              <button id="btn-toggle-key" class="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors" title="Show/hide key">
+                <i data-lucide="eye-off" class="w-4 h-4" id="eye-icon"></i>
+              </button>
+            </div>
+            <p class="text-[10px] text-muted-foreground/60 mt-1.5" id="key-hint">
+              Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" class="text-purple-400 hover:underline">aistudio.google.com/apikey</a>
+            </p>
+          </div>
+
+          <!-- Model Select -->
+          <div>
+            <label class="text-xs text-muted-foreground mb-1.5 block">Model</label>
+            <select id="model-select" class="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30">
+              <option value="gemini-2.5-flash">gemini-2.5-flash (Fast, recommended)</option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro (Most capable)</option>
+            </select>
+          </div>
+
+          <!-- Error/Success Message -->
+          <div id="status-message" class="text-xs min-h-[20px] hidden"></div>
+
+          <!-- Launch Button -->
+          <button id="btn-launch" class="w-full h-11 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+            <i data-lucide="rocket" class="w-4 h-4"></i>
+            Launch MobiClaw
+          </button>
+
+          <p class="text-[10px] text-muted-foreground/40 text-center">
+            Your API key is stored only in your browser. Never sent to our server.
+          </p>
+        </div>
+      </div>
+
+      <!-- Features -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mt-12 mb-10">
+        <div class="feature-card rounded-xl border border-border p-4 transition-colors">
+          <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center mb-3">
+            <i data-lucide="monitor-smartphone" class="w-4 h-4 text-purple-400"></i>
+          </div>
+          <h3 class="text-xs font-semibold mb-1">Screen Mirror</h3>
+          <p class="text-[11px] text-muted-foreground">H.264 streaming with touch control from your browser</p>
+        </div>
+        <div class="feature-card rounded-xl border border-border p-4 transition-colors">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center mb-3">
+            <i data-lucide="bot" class="w-4 h-4 text-emerald-400"></i>
+          </div>
+          <h3 class="text-xs font-semibold mb-1">AI Agent</h3>
+          <p class="text-[11px] text-muted-foreground">Natural language goals &mdash; the AI sees, thinks, and acts</p>
+        </div>
+        <div class="feature-card rounded-xl border border-border p-4 transition-colors">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center mb-3">
+            <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
+          </div>
+          <h3 class="text-xs font-semibold mb-1">Multi-LLM</h3>
+          <p class="text-[11px] text-muted-foreground">Gemini, GPT, or Claude &mdash; pick the best model for you</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center py-4 text-[11px] text-muted-foreground/40">
+      Built with Claude Code &mdash; <a href="https://github.com/kenken64/MobiClaw" target="_blank" class="hover:text-muted-foreground">github.com/kenken64/MobiClaw</a>
+    </footer>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+
+      const providerSelect = document.getElementById('provider-select');
+      const modelSelect = document.getElementById('model-select');
+      const apiKeyInput = document.getElementById('api-key-input');
+      const btnToggleKey = document.getElementById('btn-toggle-key');
+      const eyeIcon = document.getElementById('eye-icon');
+      const btnLaunch = document.getElementById('btn-launch');
+      const statusMsg = document.getElementById('status-message');
+      const keyHint = document.getElementById('key-hint');
+
+      const models = {
+        gemini: [
+          { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash (Fast, recommended)' },
+          { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Most capable)' },
+        ],
+        openai: [
+          { value: 'gpt-4o', label: 'gpt-4o (Best vision)' },
+          { value: 'gpt-5.4', label: 'gpt-5.4 (Latest)' },
+          { value: 'gpt-4o-mini', label: 'gpt-4o-mini (Budget)' },
+        ],
+        anthropic: [
+          { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (Recommended)' },
+          { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Fast)' },
+        ],
+      };
+
+      const hints = {
+        gemini: 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" class="text-purple-400 hover:underline">aistudio.google.com/apikey</a>',
+        openai: 'Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" class="text-purple-400 hover:underline">platform.openai.com/api-keys</a>',
+        anthropic: 'Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-purple-400 hover:underline">console.anthropic.com</a>',
+      };
+
+      const placeholders = {
+        gemini: 'AIzaSy...',
+        openai: 'sk-...',
+        anthropic: 'sk-ant-...',
+      };
+
+      // Load saved config
+      const saved = JSON.parse(localStorage.getItem('mobiclaw-config') || '{}');
+      if (saved.provider) providerSelect.value = saved.provider;
+      if (saved.apiKey) apiKeyInput.value = saved.apiKey;
+
+      function updateProvider() {
+        const provider = providerSelect.value;
+        modelSelect.innerHTML = '';
+        models[provider].forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.value;
+          opt.textContent = m.label;
+          modelSelect.appendChild(opt);
+        });
+        if (saved.model && provider === saved.provider) modelSelect.value = saved.model;
+        apiKeyInput.placeholder = placeholders[provider];
+        keyHint.innerHTML = hints[provider];
+        checkReady();
+      }
+
+      function checkReady() {
+        btnLaunch.disabled = !apiKeyInput.value.trim();
+      }
+
+      // Toggle password visibility
+      let keyVisible = false;
+      btnToggleKey.addEventListener('click', () => {
+        keyVisible = !keyVisible;
+        apiKeyInput.type = keyVisible ? 'text' : 'password';
+        eyeIcon.setAttribute('data-lucide', keyVisible ? 'eye' : 'eye-off');
+        lucide.createIcons();
+      });
+
+      providerSelect.addEventListener('change', updateProvider);
+      apiKeyInput.addEventListener('input', checkReady);
+
+      // Launch
+      btnLaunch.addEventListener('click', async () => {
+        const provider = providerSelect.value;
+        const apiKey = apiKeyInput.value.trim();
+        const model = modelSelect.value;
+
+        if (!apiKey) return;
+
+        btnLaunch.disabled = true;
+        btnLaunch.innerHTML = '<svg class="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg> Saving...';
+
+        try {
+          // Save config to server
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, apiKey, model }),
+          });
+          const result = await res.json();
+
+          if (result.success) {
+            // Save to localStorage for next visit
+            localStorage.setItem('mobiclaw-config', JSON.stringify({ provider, apiKey, model }));
+
+            statusMsg.textContent = 'Configuration saved! Redirecting...';
+            statusMsg.className = 'text-xs text-emerald-400';
+            statusMsg.classList.remove('hidden');
+
+            setTimeout(() => { window.location.href = '/app'; }, 800);
+          } else {
+            throw new Error(result.error || 'Failed to save');
+          }
+        } catch (err) {
+          statusMsg.textContent = err.message;
+          statusMsg.className = 'text-xs text-red-400';
+          statusMsg.classList.remove('hidden');
+          btnLaunch.disabled = false;
+          btnLaunch.innerHTML = '<i data-lucide="rocket" class="w-4 h-4"></i> Launch MobiClaw';
+          lucide.createIcons();
+        }
+      });
+
+      updateProvider();
+    });
+  </script>
+</body>
+</html>

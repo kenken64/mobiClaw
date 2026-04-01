@@ -6,6 +6,7 @@ import { listDevices, connectDevice, pairDevice, disconnectDevice } from '../adb
 import { getDeviceInfo } from '../adb/device-info.js';
 import { ScreencapProvider } from '../stream/screencap-provider.js';
 import { ScrcpyProvider } from '../stream/scrcpy-provider.js';
+import { ScreenrecordProvider } from '../stream/screenrecord-provider.js';
 import { ShellInputHandler } from '../input/shell-input.js';
 import { ScrcpyInputHandler } from '../input/scrcpy-input.js';
 import { RtcSession } from '../webrtc/rtc-handler.js';
@@ -40,8 +41,12 @@ export function createWsHandler(server) {
     ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
+        if (msg.type !== 'touch' && msg.type !== 'key' && msg.type !== 'scroll') {
+          console.log('[WS] <<', msg.type, msg.device || msg.mode || '');
+        }
         await handleMessage(ws, msg);
       } catch (err) {
+        console.error('[WS] Handler error:', err.message);
         sendJson(ws, { type: 'error', message: err.message });
       }
     });
@@ -94,7 +99,7 @@ export function createWsHandler(server) {
           sendJson(ws, {
             type: 'capabilities',
             scrcpy: scrcpyAvailable,
-            modes: scrcpyAvailable ? ['screencap', 'scrcpy', 'webrtc'] : ['screencap'],
+            modes: scrcpyAvailable ? ['screenrecord', 'scrcpy', 'screencap', 'webrtc'] : ['screenrecord', 'screencap'],
           });
           break;
         }
@@ -103,13 +108,15 @@ export function createWsHandler(server) {
           cleanup();
 
           const serial = msg.device;
-          const mode = msg.mode || (scrcpyAvailable ? 'scrcpy' : 'screencap');
+          const mode = msg.mode || 'screenrecord';
           currentMode = mode;
 
           try {
             const info = await getDeviceInfo(serial);
 
-            if (mode === 'webrtc' && scrcpyAvailable) {
+            if (mode === 'screenrecord') {
+              await startScreenrecordStream(ws, serial, info);
+            } else if (mode === 'webrtc' && scrcpyAvailable) {
               await startWebrtcStream(ws, serial, info);
             } else if (mode === 'scrcpy' && scrcpyAvailable) {
               await startScrcpyStream(ws, serial, info);
@@ -274,6 +281,39 @@ export function createWsHandler(server) {
         default:
           sendJson(ws, { type: 'error', message: `Unknown message type: ${msg.type}` });
       }
+    }
+
+    async function startScreenrecordStream(ws, serial, info) {
+      streamProvider = new ScreenrecordProvider(serial);
+      inputHandler = new ShellInputHandler(serial);
+
+      streamProvider.onFrame((frameBuffer, meta) => {
+        if (ws.readyState !== ws.OPEN) return;
+        const bufAmt = ws.bufferedAmount;
+        if (bufAmt > 512 * 1024 && !meta.isConfig && !meta.isKeyframe) return;
+        if (bufAmt > 2 * 1024 * 1024) return;
+
+        const header = Buffer.alloc(6);
+        header[0] = FRAME_PREFIX_H264;
+        let flags = 0;
+        if (meta.isConfig) flags |= 0x01;
+        if (meta.isKeyframe) flags |= 0x02;
+        header[1] = flags;
+        header.writeInt32BE(0, 2);
+
+        ws.send(Buffer.concat([header, frameBuffer]));
+      });
+
+      await streamProvider.start();
+
+      sendJson(ws, {
+        type: 'stream-started',
+        mode: 'screenrecord',
+        width: info.width,
+        height: info.height,
+      });
+
+      startFpsUpdates(ws);
     }
 
     async function startScreencapStream(ws, serial, info) {

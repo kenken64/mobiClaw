@@ -24,6 +24,10 @@ const pairPort = document.getElementById('pair-port');
 const pairCode = document.getElementById('pair-code');
 const btnPair = document.getElementById('btn-pair');
 const wifiStatus = document.getElementById('wifi-status');
+const btnDeviceInfo = document.getElementById('btn-device-info');
+const deviceInfoDialog = document.getElementById('device-info-dialog');
+const dialogOverlay = document.getElementById('dialog-overlay');
+const btnCloseDialog = document.getElementById('btn-close-dialog');
 const chatInput = document.getElementById('chat-input');
 const btnChatSend = document.getElementById('btn-chat-send');
 const chatMessages = document.getElementById('chat-messages');
@@ -34,6 +38,7 @@ let streaming = false;
 let selectedDevice = null;
 let activeRenderer = null;
 let currentStreamMode = null;
+let wifiConnectedSerial = null; // Track wireless device for disconnect
 
 // Renderers
 const pngRenderer = new PngRenderer(canvas);
@@ -73,18 +78,20 @@ ws.on('disconnected', () => {
 ws.on('capabilities', (msg) => {
   const scrcpyRadio = document.querySelector('input[name="mode"][value="scrcpy"]');
   const webrtcRadio = document.querySelector('input[name="mode"][value="webrtc"]');
+  const screenrecordRadio = document.querySelector('input[name="mode"][value="screenrecord"]');
 
-  if (!msg.scrcpy) {
-    scrcpyRadio.disabled = true;
-    if (webrtcRadio) webrtcRadio.disabled = true;
+  // screenrecord is always available (system binary)
+  if (screenrecordRadio) screenrecordRadio.disabled = false;
+
+  // scrcpy/webrtc need the scrcpy server
+  if (scrcpyRadio) scrcpyRadio.disabled = !msg.scrcpy;
+  if (webrtcRadio) webrtcRadio.disabled = !msg.scrcpy || !webrtcRenderer.supported;
+
+  // H.264 modes need WebCodecs
+  if (!h264Renderer.supported) {
+    if (scrcpyRadio) scrcpyRadio.disabled = true;
+    if (screenrecordRadio) screenrecordRadio.disabled = true;
     document.querySelector('input[name="mode"][value="screencap"]').checked = true;
-  } else {
-    scrcpyRadio.disabled = false;
-    if (webrtcRadio) webrtcRadio.disabled = !webrtcRenderer.supported;
-  }
-
-  if (!h264Renderer.supported && !scrcpyRadio.disabled) {
-    scrcpyRadio.disabled = true;
   }
 });
 
@@ -93,7 +100,9 @@ ws.on('device-list', (msg) => {
   msg.devices.forEach(d => {
     const opt = document.createElement('option');
     opt.value = d.serial;
-    opt.textContent = d.serial;
+    // Truncate long serial names for display
+    opt.textContent = d.serial.length > 28 ? d.serial.substring(0, 25) + '...' : d.serial;
+    opt.title = d.serial; // Full name on hover
     deviceSelect.appendChild(opt);
   });
 
@@ -101,17 +110,54 @@ ws.on('device-list', (msg) => {
     deviceSelect.value = msg.devices[0].serial;
     deviceSelect.dispatchEvent(new Event('change'));
   }
+
+  // If wifi device is gone, reset wifi button
+  if (wifiConnectedSerial && !msg.devices.find(d => d.serial === wifiConnectedSerial)) {
+    wifiConnectedSerial = null;
+    updateWifiButton();
+  }
+
+  // If selected device was disconnected, reset UI
+  if (selectedDevice && !msg.devices.find(d => d.serial === selectedDevice)) {
+    selectedDevice = null;
+    btnConnect.disabled = true;
+    btnDeviceInfo.classList.add('hidden');
+    deviceInfoDialog.classList.add('hidden');
+    if (streaming) {
+      streaming = false;
+      currentStreamMode = null;
+      btnConnect.textContent = 'Start Mirror';
+      btnConnect.classList.remove('bg-red-600', 'hover:bg-red-700');
+      btnConnect.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+      hideAllScreens();
+      placeholder.classList.remove('hidden');
+      statusFps.textContent = '0';
+      statusMode.textContent = '--';
+      activeRenderer = null;
+      webrtcRenderer.close();
+    }
+    setStatus('connected', 'No device');
+  }
 });
 
 ws.on('device-info', (msg) => {
   const d = msg.data;
+  // Store in hidden holder
   document.getElementById('info-model').textContent = d.model;
   document.getElementById('info-brand').textContent = d.brand;
   document.getElementById('info-android').textContent = `${d.androidVersion} (SDK ${d.sdkVersion})`;
   document.getElementById('info-resolution').textContent = `${d.width}x${d.height} @${d.dpi}dpi`;
   document.getElementById('info-battery').textContent =
     `${d.batteryLevel}%${d.charging ? ' (charging)' : ''}`;
-  infoPanel.classList.remove('hidden');
+  // Also populate dialog
+  document.getElementById('dialog-model').textContent = d.model;
+  document.getElementById('dialog-brand').textContent = d.brand;
+  document.getElementById('dialog-android').textContent = `${d.androidVersion} (SDK ${d.sdkVersion})`;
+  document.getElementById('dialog-resolution').textContent = `${d.width}x${d.height} @${d.dpi}dpi`;
+  document.getElementById('dialog-battery').textContent =
+    `${d.batteryLevel}%${d.charging ? ' (charging)' : ''}`;
+  // Show info button
+  btnDeviceInfo.classList.remove('hidden');
 });
 
 ws.on('stream-started', (msg) => {
@@ -127,9 +173,13 @@ ws.on('stream-started', (msg) => {
     statusMode.textContent = 'WebRTC';
     activeRenderer = webrtcRenderer;
     touch.mode = 'continuous';
-    // Canvas shown when rtc-offer arrives and is handled
+  } else if (msg.mode === 'screenrecord') {
+    statusMode.textContent = 'Stable';
+    canvas.classList.add('active');
+    activeRenderer = h264Renderer;
+    touch.mode = 'simple'; // No scrcpy control socket, use adb shell input
   } else if (msg.mode === 'scrcpy') {
-    statusMode.textContent = 'H.264';
+    statusMode.textContent = 'Fast';
     canvas.classList.add('active');
     activeRenderer = h264Renderer;
     touch.mode = 'continuous';
@@ -193,14 +243,24 @@ ws.on('stream-reconnected', (msg) => {
 
 ws.on('wifi-connect-result', (msg) => {
   showWifiStatus(msg.success, msg.message);
+  if (msg.success && msg.serial) {
+    wifiConnectedSerial = msg.serial;
+    updateWifiButton();
+  }
 });
 
 ws.on('wifi-pair-result', (msg) => {
   showWifiStatus(msg.success, msg.message);
+  // Auto-fill connect IP from pair IP on success
+  if (msg.success && pairHost.value.trim()) {
+    connectHost.value = pairHost.value.trim();
+  }
 });
 
 ws.on('wifi-disconnect-result', (msg) => {
   showWifiStatus(msg.success, msg.message);
+  wifiConnectedSerial = null;
+  updateWifiButton();
 });
 
 // Binary frame handler (for H.264/PNG modes, not WebRTC)
@@ -221,6 +281,14 @@ deviceSelect.addEventListener('change', () => {
     infoPanel.classList.add('hidden');
   }
 });
+
+// Device info dialog
+btnDeviceInfo.addEventListener('click', () => {
+  deviceInfoDialog.classList.remove('hidden');
+  lucide.createIcons();
+});
+btnCloseDialog.addEventListener('click', () => deviceInfoDialog.classList.add('hidden'));
+dialogOverlay.addEventListener('click', () => deviceInfoDialog.classList.add('hidden'));
 
 btnRefresh.addEventListener('click', () => {
   ws.send({ type: 'list-devices' });
@@ -245,9 +313,19 @@ document.querySelectorAll('.btn-key').forEach(btn => {
 });
 
 btnWifiConnect.addEventListener('click', () => {
+  // If connected, disconnect
+  if (wifiConnectedSerial) {
+    showWifiStatus(null, 'Disconnecting...');
+    ws.send({ type: 'wifi-disconnect', serial: wifiConnectedSerial });
+    wifiConnectedSerial = null;
+    updateWifiButton();
+    return;
+  }
+
   const host = connectHost.value.trim();
-  const port = parseInt(connectPort.value, 10) || 5555;
+  const port = parseInt(connectPort.value, 10);
   if (!host) { showWifiStatus(false, 'Enter an IP address'); return; }
+  if (!port) { showWifiStatus(false, 'Enter a port number'); return; }
   showWifiStatus(null, 'Connecting...');
   ws.send({ type: 'wifi-connect', host, port });
 });
@@ -280,6 +358,18 @@ function setStatus(state, text) {
      state === 'connected' ? 'connected bg-emerald-500' :
      'bg-zinc-600');
   statusText.textContent = text;
+}
+
+function updateWifiButton() {
+  if (wifiConnectedSerial) {
+    btnWifiConnect.textContent = 'Disconnect';
+    btnWifiConnect.classList.remove('bg-secondary', 'hover:bg-accent');
+    btnWifiConnect.classList.add('bg-red-600/80', 'hover:bg-red-700');
+  } else {
+    btnWifiConnect.textContent = 'Connect';
+    btnWifiConnect.classList.remove('bg-red-600/80', 'hover:bg-red-700');
+    btnWifiConnect.classList.add('bg-secondary', 'hover:bg-accent');
+  }
 }
 
 function showWifiStatus(success, message) {

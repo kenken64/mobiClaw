@@ -73,23 +73,16 @@ export async function connectDevice(host, port = 5555) {
  */
 export async function pairDevice(host, port, code) {
   const target = `${host}:${port}`;
-  console.log(`[ADB] Pairing with ${target}...`);
-  // adb pair requires the code via stdin
-  return new Promise((resolve, reject) => {
-    const proc = execFile(getAdbPath(), ['pair', target], { timeout: 15000 }, (err, stdout, stderr) => {
+  console.log(`[ADB] Pairing with ${target} code=${code}...`);
+  return new Promise((resolve) => {
+    execFile(getAdbPath(), ['pair', target, code], { timeout: 15000 }, (err, stdout, stderr) => {
       const output = (stdout + stderr).trim();
       console.log(`[ADB] Pair result: ${output}`);
-      if (err && !output.includes('Successfully paired')) {
-        return resolve({ success: false, message: output || err.message });
-      }
       if (output.includes('Successfully paired')) {
-        return resolve({ success: true, message: output });
+        return resolve({ success: true, message: 'Successfully paired! Now connect using the connection port.' });
       }
-      resolve({ success: false, message: output });
+      resolve({ success: false, message: output || (err ? err.message : 'Pairing failed') });
     });
-    // Send the pairing code to stdin
-    proc.stdin.write(code + '\n');
-    proc.stdin.end();
   });
 }
 

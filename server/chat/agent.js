@@ -168,17 +168,41 @@ export class Agent {
 
         const responseText = await this._callLLM(screenText, screenshot);
 
-        // Parse decision
-        let decision;
-        try {
-          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-          decision = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-        } catch {
-          decision = null;
+        // Parse decision - try multiple extraction strategies
+        let decision = null;
+        const cleaned = responseText
+          .replace(/```json\s*/gi, '').replace(/```\s*/g, '') // strip markdown code blocks
+          .replace(/^\s*json\s*/i, '')                         // strip leading "json" label
+          .trim();
+
+        // Strategy 1: parse the cleaned text directly
+        try { decision = JSON.parse(cleaned); } catch {}
+
+        // Strategy 2: extract first {...} block
+        if (!decision) {
+          try {
+            const match = cleaned.match(/\{[\s\S]*\}/);
+            if (match) decision = JSON.parse(match[0]);
+          } catch {}
         }
 
+        // Strategy 3: try to find the last complete {...} (sometimes LLM adds text after)
         if (!decision) {
-          this.onStep({ type: 'error', step: step + 1, message: 'LLM returned invalid JSON' });
+          try {
+            let depth = 0, start = -1;
+            for (let i = 0; i < cleaned.length; i++) {
+              if (cleaned[i] === '{') { if (depth === 0) start = i; depth++; }
+              if (cleaned[i] === '}') { depth--; if (depth === 0 && start !== -1) {
+                decision = JSON.parse(cleaned.substring(start, i + 1));
+                break;
+              }}
+            }
+          } catch {}
+        }
+
+        if (!decision || !decision.action) {
+          console.log('[Agent] Bad LLM response:', responseText.substring(0, 200));
+          this.onStep({ type: 'error', step: step + 1, message: 'LLM returned invalid response, retrying...' });
           continue;
         }
 
@@ -269,6 +293,7 @@ export class Agent {
         config: {
           systemInstruction: SYSTEM_PROMPT,
           maxOutputTokens: 512,
+          responseMimeType: 'application/json',
         },
       });
     }

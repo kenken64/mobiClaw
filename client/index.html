@@ -51,9 +51,14 @@
             <h1 class="text-sm font-semibold tracking-tight">MobiClaw</h1>
             <p class="text-xs text-muted-foreground">AI-powered phone control</p>
           </div>
-          <div class="ml-auto flex items-center gap-1.5">
-            <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600"></span>
-            <span id="status-text" class="text-xs text-muted-foreground">Disconnected</span>
+          <div class="ml-auto flex items-center gap-3">
+            <div class="flex items-center gap-1.5">
+              <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600"></span>
+              <span id="status-text" class="text-xs text-muted-foreground">Disconnected</span>
+            </div>
+            <a href="/" class="w-7 h-7 rounded-md border border-input flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Back to home">
+              <i data-lucide="home" class="w-3.5 h-3.5"></i>
+            </a>
           </div>
         </div>
       </div>
@@ -68,9 +73,12 @@
             <h2 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Device</h2>
           </div>
           <div class="flex gap-2">
-            <select id="device-select" class="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <select id="device-select" class="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring truncate">
               <option value="">Select device...</option>
             </select>
+            <button id="btn-device-info" class="inline-flex items-center justify-center h-9 w-9 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors hidden" title="Device Info">
+              <i data-lucide="info" class="w-3.5 h-3.5"></i>
+            </button>
             <button id="btn-refresh" class="inline-flex items-center justify-center h-9 w-9 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors" title="Refresh">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
             </button>
@@ -79,19 +87,19 @@
           <!-- Mode Selector -->
           <div class="grid grid-cols-3 gap-2">
             <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-2 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
-              <input type="radio" name="mode" value="webrtc" checked class="sr-only">
-              <i data-lucide="radio" class="w-3.5 h-3.5 text-purple-400"></i>
+              <input type="radio" name="mode" value="screenrecord" checked class="sr-only">
+              <i data-lucide="tv" class="w-3.5 h-3.5 text-emerald-500"></i>
               <div>
-                <div class="text-xs font-medium">WebRTC</div>
-                <div class="text-[10px] text-muted-foreground">lowest lag</div>
+                <div class="text-xs font-medium">Stable</div>
+                <div class="text-[10px] text-muted-foreground">no disconnect</div>
               </div>
             </label>
             <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-2 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
               <input type="radio" name="mode" value="scrcpy" class="sr-only">
-              <i data-lucide="zap" class="w-3.5 h-3.5 text-emerald-500"></i>
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i>
               <div>
-                <div class="text-xs font-medium">H.264</div>
-                <div class="text-[10px] text-muted-foreground">WebSocket</div>
+                <div class="text-xs font-medium">Fast</div>
+                <div class="text-[10px] text-muted-foreground">scrcpy (5s drop)</div>
               </div>
             </label>
             <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
@@ -110,22 +118,24 @@
         </div>
 
         <!-- WiFi Connect Card -->
-        <div class="rounded-lg border border-border bg-card p-3 space-y-3">
+        <div class="rounded-lg border border-border bg-card p-3 space-y-3 overflow-hidden">
           <div class="flex items-center gap-2">
             <i data-lucide="wifi" class="w-3.5 h-3.5 text-muted-foreground"></i>
             <h2 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Wireless ADB</h2>
           </div>
 
+          <!-- Step 1: Pair (one-time, Android 11+) -->
           <details id="pair-section" class="group">
             <summary class="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none">
               <i data-lucide="chevron-right" class="w-3 h-3 transition-transform group-open:rotate-90"></i>
-              Pair new device (Android 11+)
+              Step 1: Pair (one-time)
             </summary>
-            <div class="mt-2 space-y-2">
-              <input type="text" id="pair-host" placeholder="IP address" class="w-full h-8 rounded-md border border-input bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
-              <div class="flex gap-2">
-                <input type="number" id="pair-port" placeholder="Port" class="flex-1 h-8 rounded-md border border-input bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
-                <input type="text" id="pair-code" placeholder="Code" class="flex-1 h-8 rounded-md border border-input bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+            <div class="mt-2 space-y-1.5 overflow-hidden">
+              <p class="text-[10px] text-muted-foreground/70">Phone: Settings > Developer > Wireless debugging > Pair device</p>
+              <input type="text" id="pair-host" placeholder="IP address" class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+              <div class="flex gap-1.5 flex-nowrap">
+                <input type="number" id="pair-port" placeholder="Pair port" class="min-w-0 flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+                <input type="text" id="pair-code" placeholder="6-digit code" class="min-w-0 w-24 shrink-0 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
               </div>
               <button id="btn-pair" class="w-full h-8 rounded-md border border-input bg-background text-xs font-medium hover:bg-accent transition-colors">
                 Pair Device
@@ -133,34 +143,25 @@
             </div>
           </details>
 
-          <div class="flex gap-2 flex-nowrap">
-            <input type="text" id="connect-host" placeholder="IP address" class="min-w-0 flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
-            <input type="number" id="connect-port" placeholder="5555" value="5555" class="w-16 shrink-0 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
-            <button id="btn-wifi-connect" class="shrink-0 h-8 px-3 rounded-md bg-secondary text-xs font-medium hover:bg-accent transition-colors">
-              Connect
-            </button>
+          <!-- Step 2: Connect -->
+          <div>
+            <p class="text-[10px] text-muted-foreground/70 mb-1.5">Step 2: Connect (IP & port from Wireless debugging screen)</p>
+            <div class="flex gap-1.5 flex-nowrap">
+              <input type="text" id="connect-host" placeholder="IP address" class="min-w-0 flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+              <input type="number" id="connect-port" placeholder="Port" class="w-16 shrink-0 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring">
+              <button id="btn-wifi-connect" class="shrink-0 h-8 px-3 rounded-md bg-secondary text-xs font-medium hover:bg-accent transition-colors">
+                Connect
+              </button>
+            </div>
           </div>
           <div id="wifi-status" class="text-xs min-h-[16px]"></div>
         </div>
 
-        <!-- Device Info Card -->
-        <div id="device-info-panel" class="rounded-lg border border-border bg-card p-3 space-y-3 hidden">
-          <div class="flex items-center gap-2">
-            <i data-lucide="info" class="w-3.5 h-3.5 text-muted-foreground"></i>
-            <h2 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Device Info</h2>
-          </div>
-          <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-            <span class="text-muted-foreground">Model</span>
-            <span id="info-model" class="font-medium">--</span>
-            <span class="text-muted-foreground">Brand</span>
-            <span id="info-brand" class="font-medium">--</span>
-            <span class="text-muted-foreground">Android</span>
-            <span id="info-android" class="font-medium">--</span>
-            <span class="text-muted-foreground">Screen</span>
-            <span id="info-resolution" class="font-medium">--</span>
-            <span class="text-muted-foreground">Battery</span>
-            <span id="info-battery" class="font-medium">--</span>
-          </div>
+        <!-- Device Info - hidden data holder -->
+        <div id="device-info-panel" class="hidden">
+          <span id="info-model"></span><span id="info-brand"></span>
+          <span id="info-android"></span><span id="info-resolution"></span>
+          <span id="info-battery"></span>
         </div>
 
         <!-- Controls Card -->
@@ -218,14 +219,45 @@
       <div id="canvas-wrapper" class="relative flex items-center justify-center max-h-full max-w-full">
         <canvas id="screen-canvas" class="screen-canvas max-h-[calc(100vh-40px)] max-w-full rounded-xl shadow-2xl shadow-black/50 cursor-crosshair hidden"></canvas>
         <video id="screen-video" class="max-h-[calc(100vh-40px)] max-w-full rounded-xl shadow-2xl shadow-black/50 cursor-crosshair hidden" autoplay playsinline muted></video>
-        <div id="canvas-placeholder" class="flex flex-col items-center gap-4 text-muted-foreground">
-          <div class="w-20 h-20 rounded-2xl bg-secondary/50 flex items-center justify-center">
-            <i data-lucide="monitor-smartphone" class="w-10 h-10 text-muted-foreground/50"></i>
+        <div id="canvas-placeholder" class="flex flex-col items-center gap-6 text-muted-foreground max-w-md">
+          <div class="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center">
+            <i data-lucide="monitor-smartphone" class="w-8 h-8 text-muted-foreground/50"></i>
           </div>
           <div class="text-center">
-            <p class="text-sm font-medium">No active mirror</p>
-            <p class="text-xs text-muted-foreground mt-1">Select a device and click Start Mirror</p>
+            <p class="text-base font-semibold text-foreground">Connect Your Android Device</p>
+            <p class="text-xs text-muted-foreground mt-1">Follow these steps to get started</p>
           </div>
+          <div class="w-full space-y-3 text-left text-xs">
+            <div class="flex gap-3 items-start rounded-lg border border-border bg-card/50 p-3">
+              <span class="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-[11px] font-bold">1</span>
+              <div>
+                <p class="font-medium text-foreground">Enable Developer Options</p>
+                <p class="text-muted-foreground mt-0.5">Settings > About Phone > tap <strong>Build Number</strong> 7 times</p>
+              </div>
+            </div>
+            <div class="flex gap-3 items-start rounded-lg border border-border bg-card/50 p-3">
+              <span class="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-[11px] font-bold">2</span>
+              <div>
+                <p class="font-medium text-foreground">Enable USB Debugging</p>
+                <p class="text-muted-foreground mt-0.5">Settings > Developer Options > turn on <strong>USB Debugging</strong></p>
+              </div>
+            </div>
+            <div class="flex gap-3 items-start rounded-lg border border-border bg-card/50 p-3">
+              <span class="shrink-0 w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-[11px] font-bold">3</span>
+              <div>
+                <p class="font-medium text-foreground">Connect via USB</p>
+                <p class="text-muted-foreground mt-0.5">Plug in your phone with a <strong>data cable</strong> (not charge-only). Tap <strong>Allow</strong> on the USB debugging prompt.</p>
+              </div>
+            </div>
+            <div class="flex gap-3 items-start rounded-lg border border-border bg-card/50 p-3">
+              <span class="shrink-0 w-6 h-6 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center text-[11px] font-bold">4</span>
+              <div>
+                <p class="font-medium text-foreground">Start Mirroring</p>
+                <p class="text-muted-foreground mt-0.5">Select your device from the dropdown on the left and click <strong>Start Mirror</strong></p>
+              </div>
+            </div>
+          </div>
+          <p class="text-[10px] text-muted-foreground/50 text-center">Or use Wireless ADB on the left panel to connect without USB</p>
         </div>
       </div>
     </main>
@@ -267,6 +299,36 @@
       </div>
     </aside>
 
+  </div>
+
+  <!-- Device Info Dialog -->
+  <div id="device-info-dialog" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="dialog-overlay"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 rounded-xl border border-border bg-card shadow-2xl">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-border">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+          <i data-lucide="smartphone" class="w-4 h-4 text-emerald-500"></i>
+        </div>
+        <h3 class="text-sm font-semibold">Device Info</h3>
+        <button id="btn-close-dialog" class="ml-auto w-7 h-7 rounded-md hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="px-5 py-4 space-y-3">
+        <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2.5 text-sm">
+          <span class="text-muted-foreground">Model</span>
+          <span id="dialog-model" class="font-medium">--</span>
+          <span class="text-muted-foreground">Brand</span>
+          <span id="dialog-brand" class="font-medium">--</span>
+          <span class="text-muted-foreground">Android</span>
+          <span id="dialog-android" class="font-medium">--</span>
+          <span class="text-muted-foreground">Screen</span>
+          <span id="dialog-resolution" class="font-medium">--</span>
+          <span class="text-muted-foreground">Battery</span>
+          <span id="dialog-battery" class="font-medium">--</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="js/app.js"></script>
