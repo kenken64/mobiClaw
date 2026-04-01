@@ -91,11 +91,19 @@
               <option value="gemini" selected>Google Gemini (Recommended)</option>
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
+              <option value="ollama">Ollama (Local)</option>
             </select>
           </div>
 
+          <!-- Ollama Base URL -->
+          <div id="base-url-section" class="hidden">
+            <label class="text-xs text-muted-foreground mb-1.5 block">Ollama Base URL</label>
+            <input type="text" id="base-url-input" value="http://localhost:11434" placeholder="http://localhost:11434"
+              class="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30">
+          </div>
+
           <!-- API Key Input -->
-          <div>
+          <div id="api-key-section">
             <label class="text-xs text-muted-foreground mb-1.5 block">API Key</label>
             <div class="relative">
               <input type="password" id="api-key-input" placeholder="Paste your API key here..."
@@ -128,7 +136,7 @@
           </button>
 
           <p class="text-[10px] text-muted-foreground/40 text-center">
-            Your API key is stored only in your browser. Never sent to our server.
+            Your API key is saved in your browser's localStorage and only shared with this local server.
           </p>
         </div>
       </div>
@@ -166,17 +174,20 @@
   </div>
 
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
       lucide.createIcons();
 
-      const providerSelect = document.getElementById('provider-select');
-      const modelSelect = document.getElementById('model-select');
-      const apiKeyInput = document.getElementById('api-key-input');
-      const btnToggleKey = document.getElementById('btn-toggle-key');
-      const eyeIcon = document.getElementById('eye-icon');
-      const btnLaunch = document.getElementById('btn-launch');
-      const statusMsg = document.getElementById('status-message');
-      const keyHint = document.getElementById('key-hint');
+      const providerSelect  = document.getElementById('provider-select');
+      const modelSelect     = document.getElementById('model-select');
+      const apiKeyInput     = document.getElementById('api-key-input');
+      const btnToggleKey    = document.getElementById('btn-toggle-key');
+      const eyeIcon         = document.getElementById('eye-icon');
+      const btnLaunch       = document.getElementById('btn-launch');
+      const statusMsg       = document.getElementById('status-message');
+      const keyHint         = document.getElementById('key-hint');
+      const baseUrlSection  = document.getElementById('base-url-section');
+      const baseUrlInput    = document.getElementById('base-url-input');
+      const apiKeySection   = document.getElementById('api-key-section');
 
       const models = {
         gemini: [
@@ -192,27 +203,59 @@
           { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (Recommended)' },
           { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Fast)' },
         ],
+        ollama: [
+          { value: 'qwen2.5vl:72b', label: 'qwen2.5vl:72b (Vision, recommended)' },
+          { value: 'qwen2.5vl:7b', label: 'qwen2.5vl:7b (Vision, faster)' },
+          { value: 'llava:latest', label: 'llava:latest (Vision)' },
+        ],
       };
 
       const hints = {
         gemini: 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" class="text-purple-400 hover:underline">aistudio.google.com/apikey</a>',
         openai: 'Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" class="text-purple-400 hover:underline">platform.openai.com/api-keys</a>',
         anthropic: 'Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-purple-400 hover:underline">console.anthropic.com</a>',
+        ollama: 'Make sure Ollama is running locally: <code class="text-purple-300">ollama serve</code>',
       };
 
       const placeholders = {
         gemini: 'AIzaSy...',
         openai: 'sk-...',
         anthropic: 'sk-ant-...',
+        ollama: '',
       };
 
-      // Load saved config
+      // Check if an API key is already configured on the server (never load key from localStorage)
+      let serverKeySet = false;
+      let serverProvider = null;
+      let serverModel = null;
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        serverKeySet = cfg.keySet;
+        if (serverKeySet && cfg.provider !== 'none') {
+          serverProvider = cfg.provider;
+          serverModel = cfg.model;
+        }
+      } catch {}
+
+      // Restore only provider/model preference from localStorage (no API key stored)
       const saved = JSON.parse(localStorage.getItem('mobiclaw-config') || '{}');
-      if (saved.provider) providerSelect.value = saved.provider;
-      if (saved.apiKey) apiKeyInput.value = saved.apiKey;
+      if (serverProvider) {
+        providerSelect.value = serverProvider;
+      } else if (saved.provider) {
+        providerSelect.value = saved.provider;
+      }
 
       function updateProvider() {
         const provider = providerSelect.value;
+        const isOllama = provider === 'ollama';
+
+        // Show/hide Ollama base URL field and API key field
+        baseUrlSection.classList.toggle('hidden', !isOllama);
+        apiKeySection.classList.toggle('hidden', isOllama);
+
+        // Restore saved base URL for Ollama
+        if (isOllama && saved.baseUrl) baseUrlInput.value = saved.baseUrl;
+
         modelSelect.innerHTML = '';
         models[provider].forEach(m => {
           const opt = document.createElement('option');
@@ -220,14 +263,30 @@
           opt.textContent = m.label;
           modelSelect.appendChild(opt);
         });
-        if (saved.model && provider === saved.provider) modelSelect.value = saved.model;
-        apiKeyInput.placeholder = placeholders[provider];
+        const preferredModel = (provider === serverProvider && serverModel)
+          ? serverModel
+          : (saved.provider === provider ? saved.model : null);
+        if (preferredModel) modelSelect.value = preferredModel;
+
+        if (!isOllama) {
+          const hasLocalKey = !!(saved.apiKey && saved.provider === provider);
+          if ((serverKeySet && provider === serverProvider) || hasLocalKey) {
+            apiKeyInput.placeholder = '●●●●●●●●●●●●●● (key saved — enter new key to change)';
+          } else {
+            apiKeyInput.placeholder = placeholders[provider];
+          }
+        }
         keyHint.innerHTML = hints[provider];
         checkReady();
       }
 
       function checkReady() {
-        btnLaunch.disabled = !apiKeyInput.value.trim();
+        const provider = providerSelect.value;
+        if (provider === 'ollama') { btnLaunch.disabled = false; return; }
+        const hasNewKey = !!apiKeyInput.value.trim();
+        const hasServerKey = serverKeySet && provider === serverProvider;
+        const hasLocalKey = !!(saved.apiKey && saved.provider === provider);
+        btnLaunch.disabled = !(hasNewKey || hasServerKey || hasLocalKey);
       }
 
       // Toggle password visibility
@@ -247,33 +306,34 @@
         const provider = providerSelect.value;
         const apiKey = apiKeyInput.value.trim();
         const model = modelSelect.value;
+        const isOllama = provider === 'ollama';
+        const baseUrl = isOllama ? (baseUrlInput.value.trim() || 'http://localhost:11434') : undefined;
+        const hasServerKey = serverKeySet && provider === serverProvider;
+        const localApiKey = saved.provider === provider ? saved.apiKey : undefined;
+        const keyToUse = isOllama ? undefined : (apiKey || localApiKey);
 
-        if (!apiKey) return;
+        if (!isOllama && !keyToUse && !hasServerKey) return;
 
         btnLaunch.disabled = true;
         btnLaunch.innerHTML = '<svg class="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg> Saving...';
 
         try {
-          // Save config to server
           const res = await fetch('/api/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider, apiKey, model }),
+            body: JSON.stringify({ provider, apiKey: keyToUse || undefined, model, baseUrl }),
           });
           const result = await res.json();
+          if (!result.success) throw new Error(result.error || 'Failed to save');
 
-          if (result.success) {
-            // Save to localStorage for next visit
-            localStorage.setItem('mobiclaw-config', JSON.stringify({ provider, apiKey, model }));
+          // Save provider, model, API key (and baseUrl for Ollama) to localStorage
+          localStorage.setItem('mobiclaw-config', JSON.stringify({ provider, apiKey: keyToUse, model, baseUrl }));
 
-            statusMsg.textContent = 'Configuration saved! Redirecting...';
-            statusMsg.className = 'text-xs text-emerald-400';
-            statusMsg.classList.remove('hidden');
+          statusMsg.textContent = 'Configuration saved! Redirecting...';
+          statusMsg.className = 'text-xs text-emerald-400';
+          statusMsg.classList.remove('hidden');
 
-            setTimeout(() => { window.location.href = '/app'; }, 800);
-          } else {
-            throw new Error(result.error || 'Failed to save');
-          }
+          setTimeout(() => { window.location.href = '/app'; }, 800);
         } catch (err) {
           statusMsg.textContent = err.message;
           statusMsg.className = 'text-xs text-red-400';

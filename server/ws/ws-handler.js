@@ -12,6 +12,7 @@ import { ScrcpyInputHandler } from '../input/scrcpy-input.js';
 import { RtcSession } from '../webrtc/rtc-handler.js';
 import { CommandHandler } from '../chat/command-handler.js';
 import { Agent } from '../chat/agent.js';
+import { BenchmarkRunner } from '../chat/benchmark-runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCRCPY_SERVER_PATH = join(__dirname, '..', '..', 'scrcpy', 'scrcpy-server.jar');
@@ -37,6 +38,7 @@ export function createWsHandler(server) {
     let rtcSession = null;
     let commandHandler = null;
     let activeAgent = null;
+    let activeBenchmark = null;
 
     ws.on('message', async (data) => {
       try {
@@ -69,6 +71,10 @@ export function createWsHandler(server) {
       if (streamProvider) {
         streamProvider.stop();
         streamProvider = null;
+      }
+      if (activeBenchmark) {
+        activeBenchmark.stop();
+        activeBenchmark = null;
       }
       if (rtcSession) {
         rtcSession.close();
@@ -192,10 +198,56 @@ export function createWsHandler(server) {
           // Simple commands (start with /, or are single keywords like "help")
           const prompt = msg.prompt.trim();
           if (prompt.startsWith('/') || prompt === 'help' || prompt === '?') {
+            const cmdPrompt = prompt.startsWith('/') ? prompt.slice(1).trim() : prompt;
+
+            if (cmdPrompt.toLowerCase().startsWith('benchmark')) {
+              const lower = cmdPrompt.toLowerCase();
+              if (lower === 'benchmark stop') {
+                if (activeBenchmark) {
+                  activeBenchmark.stop();
+                  activeBenchmark = null;
+                  sendJson(ws, { type: 'chat-response', action: 'benchmark', message: 'Benchmark stopped.' });
+                } else {
+                  sendJson(ws, { type: 'chat-response', action: 'benchmark', message: 'No active benchmark.' });
+                }
+                break;
+              }
+
+              if (activeAgent) {
+                activeAgent.stop();
+                activeAgent = null;
+              }
+              if (activeBenchmark) {
+                activeBenchmark.stop();
+              }
+
+              activeBenchmark = new BenchmarkRunner(serial, (line) => {
+                sendJson(ws, { type: 'chat-response', action: 'benchmark', message: line });
+              });
+
+              activeBenchmark.run(cmdPrompt).then((result) => {
+                sendJson(ws, {
+                  type: 'chat-response',
+                  action: 'benchmark',
+                  message: formatBenchmarkResult(result),
+                });
+              }).catch((err) => {
+                sendJson(ws, {
+                  type: 'chat-response',
+                  error: true,
+                  action: 'benchmark',
+                  message: `Benchmark failed: ${err.message}`,
+                });
+              }).finally(() => {
+                activeBenchmark = null;
+              });
+
+              break;
+            }
+
             if (!commandHandler || commandHandler.serial !== serial) {
               commandHandler = new CommandHandler(serial);
             }
-            const cmdPrompt = prompt.startsWith('/') ? prompt.slice(1) : prompt;
             try {
               const result = await commandHandler.execute(cmdPrompt);
               sendJson(ws, { type: 'chat-response', ...result, prompt });
@@ -512,6 +564,36 @@ export function createWsHandler(server) {
   });
 
   return wss;
+}
+
+function formatBenchmarkResult(result) {
+  if (!result) return 'Benchmark finished with no results.';
+
+  const lines = [];
+  if (result.baseline) lines.push(formatSuiteLine(result.baseline));
+  if (result.enhanced) lines.push(formatSuiteLine(result.enhanced));
+
+  if (result.delta) {
+    lines.push('--- Delta (enhanced - baseline) ---');
+    lines.push(`successRate: ${signed(result.delta.successRate)}`);
+    lines.push(`avgSteps: ${signed(result.delta.avgSteps)}`);
+    lines.push(`avgDurationMs: ${signed(result.delta.avgDurationMs)}`);
+    lines.push(`stuckEvents: ${signed(result.delta.stuckEvents)}`);
+    lines.push(`errorCount: ${signed(result.delta.errorCount)}`);
+    lines.push(`ocrUsageRate: ${signed(result.delta.ocrUsageRate)}`);
+  }
+
+  lines.push('Run /benchmark stop to cancel an active run.');
+  return lines.join('\n');
+}
+
+function formatSuiteLine(suite) {
+  return `${suite.label}: pass ${suite.passed}/${suite.total}, successRate=${suite.successRate}, avgSteps=${suite.avgSteps}, avgDurationMs=${suite.avgDurationMs}, stuck=${suite.stuckEvents}, errors=${suite.errorCount}, ocrUsage=${suite.ocrUsageRate}`;
+}
+
+function signed(value) {
+  const n = Number(value || 0);
+  return n > 0 ? `+${n}` : String(n);
 }
 
 function sendJson(ws, obj) {

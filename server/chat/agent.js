@@ -5,12 +5,12 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
-import { getScreenElements, captureScreenshot, getForegroundApp } from './perception.js';
+import { getScreenElements, captureScreenshot, getForegroundApp, extractOcrElements, fuseElementsWithOcr } from './perception.js';
 import { getClient } from '../adb/adb-client.js';
 import { getScreenResolution } from '../adb/device-info.js';
 
-const MAX_STEPS = 20;
-const STEP_DELAY_MS = 800;
+const DEFAULT_MAX_STEPS = 20;
+const DEFAULT_STEP_DELAY_MS = 800;
 
 const SYSTEM_PROMPT = `You are an AI agent controlling an Android phone via ADB.
 
@@ -54,13 +54,15 @@ function getProvider() {
   if (process.env.GEMINI_API_KEY) return 'gemini';
   if (process.env.OPENAI_API_KEY) return 'openai';
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  if (process.env.OLLAMA_MODEL) return 'ollama';
   return null;
 }
 
 export class Agent {
-  constructor(serial, onStep) {
+  constructor(serial, onStep, options = {}) {
     this.serial = serial;
     this.onStep = onStep;
+    this.options = options;
     this.running = false;
     this.resolution = null;
     this._provider = null;
@@ -68,6 +70,7 @@ export class Agent {
     this._anthropic = null;
     this._gemini = null;
     this._geminiChat = null;
+    this._ollama = null;
   }
 
   async init() {
@@ -80,8 +83,11 @@ export class Agent {
       this._gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     } else if (this._provider === 'openai') {
       this._openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    } else {
+    } else if (this._provider === 'anthropic') {
       this._anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    } else if (this._provider === 'ollama') {
+      const base = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
+      this._ollama = new OpenAI({ baseURL: `${base}/v1`, apiKey: 'ollama' });
     }
 
     this.resolution = await getScreenResolution(this.serial);
@@ -92,24 +98,31 @@ export class Agent {
     await this.init();
     this.running = true;
 
+    const maxSteps = Number.isFinite(this.options.maxSteps)
+      ? this.options.maxSteps
+      : parseInt(process.env.AGENT_MAX_STEPS || String(DEFAULT_MAX_STEPS), 10);
+    const stepDelayMs = Number.isFinite(this.options.stepDelayMs)
+      ? this.options.stepDelayMs
+      : parseInt(process.env.AGENT_STEP_DELAY_MS || String(DEFAULT_STEP_DELAY_MS), 10);
+
     this._messages = [];
-    let prevElementHash = '';
+    let prevScreenHash = '';
     let stuckCount = 0;
 
-    this.onStep({ type: 'start', goal, maxSteps: MAX_STEPS, provider: this._provider });
+    this.onStep({ type: 'start', goal, maxSteps, provider: this._provider });
 
-    for (let step = 0; step < MAX_STEPS && this.running; step++) {
+    for (let step = 0; step < maxSteps && this.running; step++) {
       try {
         // 1. PERCEIVE
         this.onStep({ type: 'perceiving', step: step + 1 });
 
-        const [{ elements, raw: xmlRaw }, foregroundApp, screenshot] = await Promise.all([
+        const [{ elements, raw: xmlRaw, meta }, foregroundApp, screenshot] = await Promise.all([
           getScreenElements(this.serial),
           getForegroundApp(this.serial),
           captureScreenshot(this.serial),
         ]);
 
-        console.log(`[Agent] Foreground: ${foregroundApp}, Elements: ${elements.length}, Screenshot: ${screenshot ? (screenshot.length / 1024).toFixed(0) + 'KB' : 'none'}`);
+        console.log(`[Agent] Foreground: ${foregroundApp}, Elements: ${elements.length}, Screenshot: ${screenshot ? (screenshot.length / 1024).toFixed(0) + 'KB' : 'none'}, Modal: ${meta?.modalDetected ? 'yes' : 'no'}`);
 
         // Detect stale elements: check if elements' package matches foreground app
         let elementsStale = false;
@@ -130,9 +143,21 @@ export class Agent {
           }
         }
 
+        let workingElements = elements;
+        let ocrCount = 0;
+
+        // OCR is optional and only runs when enabled with AGENT_OCR_ENABLE=1.
+        if (!elementsStale && shouldRunOcr(step, elements, screenshot)) {
+          const ocrElements = await extractOcrElements(screenshot);
+          ocrCount = ocrElements.length;
+          if (ocrCount > 0) {
+            workingElements = fuseElementsWithOcr(elements, ocrElements);
+          }
+        }
+
         let compactElements = [];
         if (!elementsStale) {
-          compactElements = elements.slice(0, 40).map(e => ({
+          compactElements = workingElements.slice(0, 40).map(e => ({
             i: e.index,
             text: e.text || undefined,
             desc: e.desc || undefined,
@@ -140,18 +165,34 @@ export class Agent {
             id: e.id || undefined,
             tap: e.clickable ? e.center : undefined,
             scroll: e.scrollable || undefined,
+            confidence: e.confidence,
+            source: e.source || 'ui',
           }));
         }
 
         // Stuck detection
-        const currentHash = JSON.stringify(compactElements.map(e => e.text || e.desc));
-        if (currentHash === prevElementHash && step > 0) stuckCount++;
+        const currentHash = hashScreenForStuckDetection(screenshot, compactElements);
+        if (currentHash === prevScreenHash && step > 0) stuckCount++;
         else stuckCount = 0;
-        prevElementHash = currentHash;
+        prevScreenHash = currentHash;
 
         let stuckHint = '';
         if (stuckCount >= 2) {
           stuckHint = `\n\nWARNING: Screen NOT changed for ${stuckCount} steps. Try completely different approach.`;
+          this.onStep({ type: 'stuck', step: step + 1, count: stuckCount });
+        }
+
+        if (process.env.AGENT_DEBUG_CANDIDATES === '1') {
+          this.onStep({
+            type: 'debug_candidates',
+            step: step + 1,
+            foreground: foregroundApp || 'unknown',
+            elementsStale,
+            modalDetected: Boolean(meta?.modalDetected),
+            modalMetrics: meta?.modalMetrics,
+            ocrCount,
+            candidates: compactElements.slice(0, 12),
+          });
         }
 
         // 2. REASON
@@ -160,10 +201,12 @@ export class Agent {
         let screenText;
         if (elementsStale || compactElements.length === 0) {
           // Screenshot-only mode: no elements, rely entirely on vision
-          screenText = `GOAL: ${goal}\n\nFOREGROUND: ${foregroundApp || 'unknown'}\nRESOLUTION: ${this.resolution.width}x${this.resolution.height}\nSTEP: ${step + 1}/${MAX_STEPS}\n\nNO RELIABLE UI ELEMENTS AVAILABLE. Use ONLY the screenshot to decide your action. Estimate tap coordinates from what you see in the image.${stuckHint}`;
+          screenText = `GOAL: ${goal}\n\nFOREGROUND: ${foregroundApp || 'unknown'}\nRESOLUTION: ${this.resolution.width}x${this.resolution.height}\nSTEP: ${step + 1}/${maxSteps}\n\nNO RELIABLE UI ELEMENTS AVAILABLE. Use ONLY the screenshot to decide your action. Estimate tap coordinates from what you see in the image.${stuckHint}`;
           console.log(`[Agent] Screenshot-only mode (stale elements discarded)`);
         } else {
-          screenText = `GOAL: ${goal}\n\nFOREGROUND: ${foregroundApp || 'unknown'}\nRESOLUTION: ${this.resolution.width}x${this.resolution.height}\nSTEP: ${step + 1}/${MAX_STEPS}\n\nELEMENTS (${compactElements.length} found):\n${JSON.stringify(compactElements, null, 1)}\n\nA screenshot is also attached. If the elements don't match what you see in the screenshot, TRUST THE SCREENSHOT.${stuckHint}`;
+          const modalHint = meta?.modalDetected ? '\nMODAL DETECTED: Prefer interacting with dialog/overlay controls in the visible popup.' : '';
+          const ocrHint = ocrCount > 0 ? `\nOCR FUSION: Added ${ocrCount} OCR-derived text regions.` : '';
+          screenText = `GOAL: ${goal}\n\nFOREGROUND: ${foregroundApp || 'unknown'}\nRESOLUTION: ${this.resolution.width}x${this.resolution.height}\nSTEP: ${step + 1}/${maxSteps}${modalHint}${ocrHint}\n\nELEMENTS (${compactElements.length} found):\n${JSON.stringify(compactElements, null, 1)}\n\nEach element may include confidence (0-1) and source (ui|ocr). OCR source can help with tiny/non-accessible labels. If confidence is low across options, prefer wait/scroll/back over random tapping.\n\nA screenshot is also attached. If the elements don't match what you see in the screenshot, TRUST THE SCREENSHOT.${stuckHint}`;
         }
 
         const responseText = await this._callLLM(screenText, screenshot);
@@ -224,7 +267,7 @@ export class Agent {
         await this._executeAction(decision);
         this.onStep({ type: 'acted', step: step + 1, action: decision.action });
 
-        await sleep(STEP_DELAY_MS);
+        await sleep(stepDelayMs);
 
       } catch (err) {
         const msg = err.message || String(err);
@@ -248,6 +291,11 @@ export class Agent {
           this.running = false;
           return;
         }
+        if (msg.includes('closed') || msg.includes('ECONNRESET') || msg.includes('ECONNREFUSED') || msg.includes('EPIPE')) {
+          this.onStep({ type: 'error', step: step + 1, message: 'Device disconnected. Reconnect and try again.' });
+          this.running = false;
+          return;
+        }
 
         this.onStep({ type: 'error', step: step + 1, message: msg.length > 150 ? msg.substring(0, 150) + '...' : msg });
         await sleep(1000);
@@ -255,7 +303,7 @@ export class Agent {
     }
 
     if (this.running) {
-      this.onStep({ type: 'maxsteps', message: `Reached max ${MAX_STEPS} steps` });
+      this.onStep({ type: 'maxsteps', message: `Reached max ${maxSteps} steps` });
       this.running = false;
     }
   }
@@ -266,9 +314,10 @@ export class Agent {
 
   async _callLLM(screenText, screenshotBase64) {
     switch (this._provider) {
-      case 'gemini': return this._callGemini(screenText, screenshotBase64);
-      case 'openai': return this._callOpenAI(screenText, screenshotBase64);
+      case 'gemini':    return this._callGemini(screenText, screenshotBase64);
+      case 'openai':    return this._callOpenAI(screenText, screenshotBase64);
       case 'anthropic': return this._callAnthropic(screenText, screenshotBase64);
+      case 'ollama':    return this._callOllama(screenText, screenshotBase64);
     }
   }
 
@@ -292,7 +341,7 @@ export class Agent {
         model,
         config: {
           systemInstruction: SYSTEM_PROMPT,
-          maxOutputTokens: 512,
+          maxOutputTokens: 1024,
           responseMimeType: 'application/json',
         },
       });
@@ -317,7 +366,7 @@ export class Agent {
     const model = process.env.OPENAI_MODEL || 'gpt-4o';
     const response = await this._openai.chat.completions.create({
       model,
-      max_completion_tokens: 512,
+      max_completion_tokens: 1024,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...this._messages],
     });
 
@@ -341,12 +390,36 @@ export class Agent {
     const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
     const response = await this._anthropic.messages.create({
       model,
-      max_tokens: 512,
+      max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: this._messages,
     });
 
     const text = response.content[0]?.text || '';
+    this._messages.push({ role: 'assistant', content: text });
+    return text;
+  }
+
+  async _callOllama(screenText, screenshotBase64) {
+    const model = process.env.OLLAMA_MODEL || 'qwen2.5vl:72b';
+    const content = [{ type: 'text', text: screenText }];
+    if (screenshotBase64) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: `data:image/png;base64,${screenshotBase64}` },
+      });
+    }
+
+    this._messages.push({ role: 'user', content });
+    if (this._messages.length > 14) this._messages.splice(0, 2);
+
+    const response = await this._ollama.chat.completions.create({
+      model,
+      max_tokens: 1024,
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...this._messages],
+    });
+
+    const text = response.choices[0]?.message?.content || '';
     this._messages.push({ role: 'assistant', content: text });
     return text;
   }
@@ -401,6 +474,34 @@ export class Agent {
 async function shell(device, cmd) {
   const stream = await device.shell(cmd);
   for await (const _ of stream) {}
+}
+
+function hashScreenForStuckDetection(screenshotBase64, compactElements) {
+  if (screenshotBase64 && screenshotBase64.length > 128) {
+    const stride = Math.max(1, Math.floor(screenshotBase64.length / 64));
+    let out = '';
+    for (let i = 0; i < screenshotBase64.length && out.length < 64; i += stride) {
+      out += screenshotBase64[i];
+    }
+    return out;
+  }
+  return JSON.stringify((compactElements || []).map(e => `${e.i}:${e.text || e.desc || ''}`));
+}
+
+function shouldRunOcr(step, elements, screenshotBase64) {
+  if (process.env.AGENT_OCR_ENABLE !== '1') return false;
+  if (!screenshotBase64) return false;
+
+  // Run every other step by default to keep loop responsive.
+  const everyN = Math.max(1, parseInt(process.env.AGENT_OCR_EVERY_N_STEPS || '2', 10));
+  if (step % everyN !== 0) return false;
+
+  // Prioritize OCR when accessibility labels are sparse.
+  const labeledCount = (elements || []).filter((e) => e.text || e.desc).length;
+  if (labeledCount < 8) return true;
+
+  // Still allow periodic OCR even on rich screens for tiny labels.
+  return step % (everyN * 2) === 0;
 }
 
 function sleep(ms) {

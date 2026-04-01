@@ -32,6 +32,15 @@ const chatInput = document.getElementById('chat-input');
 const btnChatSend = document.getElementById('btn-chat-send');
 const chatMessages = document.getElementById('chat-messages');
 const btnChatHelp = document.getElementById('btn-chat-help');
+const btnChatClear = document.getElementById('btn-chat-clear');
+const btnHome = document.getElementById('btn-home');
+const btnLogout = document.getElementById('btn-logout');
+const btnRecordStart = document.getElementById('btn-record-start');
+const btnRecordStop = document.getElementById('btn-record-stop');
+const btnRecordDownload = document.getElementById('btn-record-download');
+const recordingStatus = document.getElementById('recording-status');
+const recordingTimer = document.getElementById('recording-timer');
+const recordingBadge = document.getElementById('recording-badge');
 
 // State
 let streaming = false;
@@ -39,6 +48,14 @@ let selectedDevice = null;
 let activeRenderer = null;
 let currentStreamMode = null;
 let wifiConnectedSerial = null; // Track wireless device for disconnect
+let mediaRecorder = null;
+let recordingStream = null;
+let recordingChunks = [];
+let recordingBlob = null;
+let recordingUrl = null;
+let recordingStartedAt = 0;
+let recordingTimerInterval = null;
+let recordingMimeType = 'video/webm';
 
 // Renderers
 const pngRenderer = new PngRenderer(canvas);
@@ -59,15 +76,29 @@ function getSelectedMode() {
 // --- WebSocket Events ---
 
 ws.on('connected', () => {
-  setStatus('connected', 'Connected');
+  setStatus('no-device', 'No device');
   ws.send({ type: 'list-devices' });
   ws.send({ type: 'get-capabilities' });
+  // Re-apply API config from localStorage in case server restarted
+  const saved = JSON.parse(localStorage.getItem('mobiclaw-config') || '{}');
+  if (saved.provider === 'ollama' || saved.apiKey) {
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: saved.provider, apiKey: saved.apiKey, model: saved.model, baseUrl: saved.baseUrl }),
+    }).catch(() => {});
+  }
 });
 
 ws.on('disconnected', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    stopRecording('Stream disconnected. Recording stopped.');
+  }
   setStatus('disconnected', 'Disconnected');
   streaming = false;
   currentStreamMode = null;
+  updateSendButton();
+  updateRecordingControls();
   btnConnect.textContent = 'Start Mirror';
   hideAllScreens();
   placeholder.classList.remove('hidden');
@@ -106,7 +137,9 @@ ws.on('device-list', (msg) => {
     deviceSelect.appendChild(opt);
   });
 
-  if (msg.devices.length === 1) {
+  if (msg.devices.length === 0) {
+    if (!selectedDevice) setStatus('no-device', 'No device');
+  } else if (msg.devices.length === 1) {
     deviceSelect.value = msg.devices[0].serial;
     deviceSelect.dispatchEvent(new Event('change'));
   }
@@ -136,7 +169,7 @@ ws.on('device-list', (msg) => {
       activeRenderer = null;
       webrtcRenderer.close();
     }
-    setStatus('connected', 'No device');
+    setStatus('no-device', 'No device');
   }
 });
 
@@ -163,6 +196,8 @@ ws.on('device-info', (msg) => {
 ws.on('stream-started', (msg) => {
   streaming = true;
   currentStreamMode = msg.mode;
+  updateSendButton();
+  updateRecordingControls();
   btnConnect.textContent = 'Stop Mirror';
   btnConnect.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
   btnConnect.classList.add('bg-red-600', 'hover:bg-red-700');
@@ -205,8 +240,13 @@ ws.on('rtc-offer', async (msg) => {
 });
 
 ws.on('stream-stopped', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    stopRecording('Mirror stopped. Recording finalized.');
+  }
   streaming = false;
   currentStreamMode = null;
+  updateSendButton();
+  updateRecordingControls();
   btnConnect.textContent = 'Start Mirror';
   btnConnect.classList.remove('bg-red-600', 'hover:bg-red-700');
   btnConnect.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
@@ -274,10 +314,13 @@ ws.onBinary((data) => {
 deviceSelect.addEventListener('change', () => {
   selectedDevice = deviceSelect.value;
   btnConnect.disabled = !selectedDevice;
+  updateRecordingControls();
 
   if (selectedDevice) {
+    setStatus('connected', 'Connected');
     ws.send({ type: 'get-device-info', device: selectedDevice });
   } else {
+    setStatus('no-device', 'No device');
     infoPanel.classList.add('hidden');
   }
 });
@@ -353,10 +396,13 @@ function hideAllScreens() {
 }
 
 function setStatus(state, text) {
-  statusDot.className = 'w-2 h-2 rounded-full ' +
-    (state === 'streaming' ? 'streaming bg-emerald-500' :
-     state === 'connected' ? 'connected bg-emerald-500' :
-     'bg-zinc-600');
+  const color =
+    state === 'streaming'     ? 'bg-emerald-500' :
+    state === 'connected'     ? 'bg-emerald-500' :
+    state === 'no-device'     ? 'bg-amber-400'   :
+    state === 'disconnected'  ? 'bg-red-500'     :
+    'bg-zinc-600';
+  statusDot.className = `w-2 h-2 rounded-full ${color}`;
   statusText.textContent = text;
 }
 
@@ -370,6 +416,162 @@ function updateWifiButton() {
     btnWifiConnect.classList.remove('bg-red-600/80', 'hover:bg-red-700');
     btnWifiConnect.classList.add('bg-secondary', 'hover:bg-accent');
   }
+}
+
+function getPreferredRecordingMimeType() {
+  const candidates = [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  for (const candidate of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(candidate)) return candidate;
+  }
+  return '';
+}
+
+function formatDuration(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+function setRecordingStatus(text, isError = false) {
+  recordingStatus.textContent = text;
+  recordingStatus.className = `text-[11px] min-h-[16px] ${isError ? 'text-red-400' : 'text-muted-foreground'}`;
+}
+
+function updateRecordingTimer() {
+  if (!recordingStartedAt) {
+    recordingTimer.textContent = '00:00';
+    return;
+  }
+  const elapsed = (Date.now() - recordingStartedAt) / 1000;
+  recordingTimer.textContent = formatDuration(elapsed);
+}
+
+function resetRecordingTimer() {
+  recordingStartedAt = 0;
+  if (recordingTimerInterval) {
+    clearInterval(recordingTimerInterval);
+    recordingTimerInterval = null;
+  }
+  recordingTimer.textContent = '00:00';
+}
+
+function updateRecordingControls() {
+  const activeRecording = Boolean(mediaRecorder && mediaRecorder.state === 'recording');
+  const canRecord = streaming && selectedDevice && Boolean(canvas.captureStream);
+
+  btnRecordStart.disabled = !canRecord || activeRecording;
+  btnRecordStop.disabled = !activeRecording;
+  btnRecordDownload.disabled = !recordingBlob;
+
+  if (activeRecording) {
+    recordingBadge.textContent = 'REC';
+    recordingBadge.className = 'ml-auto text-[10px] px-2 py-0.5 rounded-full border border-red-500/40 text-red-400 bg-red-500/10';
+  } else if (recordingBlob) {
+    recordingBadge.textContent = 'Ready';
+    recordingBadge.className = 'ml-auto text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/40 text-emerald-400 bg-emerald-500/10';
+  } else {
+    recordingBadge.textContent = 'Idle';
+    recordingBadge.className = 'ml-auto text-[10px] px-2 py-0.5 rounded-full border border-input text-muted-foreground';
+  }
+
+  if (!streaming && !activeRecording && !recordingBlob) {
+    setRecordingStatus('Start mirroring to enable recording.');
+  }
+}
+
+function startRecording() {
+  if (!streaming) {
+    setRecordingStatus('Start mirroring before recording.', true);
+    return;
+  }
+  if (!canvas.captureStream) {
+    setRecordingStatus('Recording unsupported in this browser.', true);
+    return;
+  }
+
+  const mimeType = getPreferredRecordingMimeType();
+  if (!mimeType) {
+    setRecordingStatus('No supported recording codec found.', true);
+    return;
+  }
+
+  try {
+    if (recordingUrl) {
+      URL.revokeObjectURL(recordingUrl);
+      recordingUrl = null;
+    }
+    recordingBlob = null;
+    recordingChunks = [];
+    recordingMimeType = mimeType;
+
+    recordingStream = canvas.captureStream(30);
+    mediaRecorder = new MediaRecorder(recordingStream, { mimeType: recordingMimeType, videoBitsPerSecond: 4_000_000 });
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) recordingChunks.push(event.data);
+    };
+
+    mediaRecorder.onerror = () => {
+      setRecordingStatus('Recording error occurred.', true);
+      updateRecordingControls();
+    };
+
+    mediaRecorder.onstop = () => {
+      const tracks = recordingStream ? recordingStream.getTracks() : [];
+      tracks.forEach((track) => track.stop());
+      recordingStream = null;
+
+      if (recordingChunks.length > 0) {
+        recordingBlob = new Blob(recordingChunks, { type: recordingMimeType || 'video/webm' });
+        recordingUrl = URL.createObjectURL(recordingBlob);
+        setRecordingStatus(`Recording ready (${(recordingBlob.size / (1024 * 1024)).toFixed(1)} MB). Click Download.`);
+      } else {
+        setRecordingStatus('Recording finished but no data was captured.', true);
+      }
+
+      resetRecordingTimer();
+      updateRecordingControls();
+    };
+
+    mediaRecorder.start(1000);
+    recordingStartedAt = Date.now();
+    updateRecordingTimer();
+    recordingTimerInterval = setInterval(updateRecordingTimer, 500);
+    setRecordingStatus('Recording in progress...');
+    updateRecordingControls();
+  } catch (err) {
+    setRecordingStatus(`Failed to start recording: ${err.message}`, true);
+    mediaRecorder = null;
+    if (recordingStream) {
+      recordingStream.getTracks().forEach((track) => track.stop());
+      recordingStream = null;
+    }
+    resetRecordingTimer();
+    updateRecordingControls();
+  }
+}
+
+function stopRecording(statusText) {
+  if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+  if (statusText) setRecordingStatus(statusText);
+  mediaRecorder.stop();
+}
+
+function downloadRecording() {
+  if (!recordingBlob || !recordingUrl) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const extension = recordingMimeType.includes('webm') ? 'webm' : 'mp4';
+  const a = document.createElement('a');
+  a.href = recordingUrl;
+  a.download = `mobiclaw-recording-${stamp}.${extension}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function showWifiStatus(success, message) {
@@ -412,6 +614,9 @@ ws.on('agent-step', (msg) => {
       addAgentStep('action', `${msg.action}${msg.reason ? ' — ' + msg.reason : ''}`);
       break;
     case 'acted':
+      break;
+    case 'debug_candidates':
+      addAgentCandidateDebug(msg);
       break;
     case 'done':
       addAgentStep('done', msg.message || 'Goal achieved!');
@@ -465,13 +670,27 @@ const ICON_SEND = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14
 const ICON_STOP = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 
 function updateSendButton() {
-  if (agentRunning) {
-    btnChatSend.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+  if (!streaming && !agentRunning) {
+    chatInput.disabled = true;
+    chatInput.placeholder = 'Start mirroring to use AI agent...';
+    btnChatSend.disabled = true;
+    btnChatSend.classList.remove('bg-purple-600', 'hover:bg-purple-700', 'bg-red-600', 'hover:bg-red-700');
+    btnChatSend.classList.add('opacity-40', 'cursor-not-allowed');
+    btnChatSend.innerHTML = ICON_SEND;
+    btnChatSend.title = 'Start mirroring first';
+  } else if (agentRunning) {
+    chatInput.disabled = false;
+    chatInput.placeholder = 'Tell the AI what to do...';
+    btnChatSend.disabled = false;
+    btnChatSend.classList.remove('bg-purple-600', 'hover:bg-purple-700', 'opacity-40', 'cursor-not-allowed');
     btnChatSend.classList.add('bg-red-600', 'hover:bg-red-700');
     btnChatSend.innerHTML = ICON_STOP;
     btnChatSend.title = 'Stop agent';
   } else {
-    btnChatSend.classList.remove('bg-red-600', 'hover:bg-red-700');
+    chatInput.disabled = false;
+    chatInput.placeholder = 'Tell the AI what to do...';
+    btnChatSend.disabled = false;
+    btnChatSend.classList.remove('bg-red-600', 'hover:bg-red-700', 'opacity-40', 'cursor-not-allowed');
     btnChatSend.classList.add('bg-purple-600', 'hover:bg-purple-700');
     btnChatSend.innerHTML = ICON_SEND;
     btnChatSend.title = 'Send';
@@ -485,6 +704,23 @@ chatInput.addEventListener('keydown', (e) => {
 
 btnChatHelp.addEventListener('click', () => {
   ws.send({ type: 'chat', device: selectedDevice || '_', prompt: '/help' });
+});
+
+btnRecordStart.addEventListener('click', startRecording);
+btnRecordStop.addEventListener('click', () => stopRecording('Finalizing recording...'));
+btnRecordDownload.addEventListener('click', downloadRecording);
+
+btnChatClear.addEventListener('click', () => {
+  chatMessages.innerHTML = '';
+});
+
+btnHome.addEventListener('click', () => {
+  window.location.href = '/';
+});
+
+btnLogout.addEventListener('click', () => {
+  localStorage.removeItem('mobiclaw-config');
+  window.location.href = '/';
 });
 
 btnAgentStop.addEventListener('click', () => {
@@ -546,9 +782,32 @@ function updateLastStep(text) {
   }
 }
 
+function addAgentCandidateDebug(msg) {
+  const flags = [];
+  if (msg.modalDetected) flags.push('modal');
+  if (msg.elementsStale) flags.push('stale-elements');
+  if ((msg.ocrCount || 0) > 0) flags.push(`ocr=${msg.ocrCount}`);
+  if (msg.modalMetrics?.maxElementAreaRatio !== undefined) {
+    flags.push(`maxArea=${msg.modalMetrics.maxElementAreaRatio}`);
+  }
+  const header = `Step ${msg.step} candidates${flags.length ? ` [${flags.join(', ')}]` : ''}`;
+
+  const lines = (msg.candidates || []).slice(0, 8).map((candidate) => {
+    const label = candidate.text || candidate.desc || candidate.id || candidate.type || `#${candidate.i}`;
+    const tap = Array.isArray(candidate.tap) ? ` @${candidate.tap[0]},${candidate.tap[1]}` : '';
+    const conf = typeof candidate.confidence === 'number' ? ` (c=${candidate.confidence.toFixed(2)})` : '';
+    const source = candidate.source ? ` [${candidate.source}]` : '';
+    return `- ${label}${source}${tap}${conf}`;
+  });
+
+  addAgentStep('perceive', `${header}\n${lines.length ? lines.join('\n') : '- no candidates'}`);
+}
+
 function escapeHtml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // --- Start ---
+updateSendButton();
+updateRecordingControls();
 ws.connect();

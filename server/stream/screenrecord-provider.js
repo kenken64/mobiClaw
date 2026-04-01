@@ -108,14 +108,20 @@ export class ScreenrecordProvider {
       console.log('[Screenrecord] Stream ended');
       if (this.running) {
         console.log('[Screenrecord] Auto-restarting...');
-        setTimeout(() => this._startRecording(), 300);
+        setTimeout(() => this._startRecording().catch(err => {
+          console.error('[Screenrecord] Auto-restart failed:', err.message);
+          this.running = false;
+        }), 300);
       }
     });
 
     this._stream.on('error', (err) => {
       console.error('[Screenrecord] Stream error:', err.message);
       if (this.running) {
-        setTimeout(() => this._startRecording(), 1000);
+        setTimeout(() => this._startRecording().catch(e => {
+          console.error('[Screenrecord] Auto-restart failed:', e.message);
+          this.running = false;
+        }), 1000);
       }
     });
   }

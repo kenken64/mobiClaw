@@ -1,14 +1,20 @@
 import express from 'express';
 import { createServer } from 'http';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import config from './config.js';
 import { listDevices, trackDevices } from './adb/adb-client.js';
 import { createWsHandler } from './ws/ws-handler.js';
 
+// Prevent adbkit/Bluebird uncaught errors from crashing the server
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught exception (non-fatal):', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled rejection (non-fatal):', reason?.message || reason);
+});
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ENV_PATH = join(__dirname, '..', '.env');
 const app = express();
 const server = createServer(app);
 
@@ -27,46 +33,40 @@ app.get('/app', (req, res) => {
 // Serve static frontend files
 app.use(express.static(join(__dirname, '..', 'client')));
 
-// API: Save config (API key + model)
+// API: Save config (API key + model) — stored in memory only, never written to disk
 app.post('/api/config', (req, res) => {
   try {
-    const { provider, apiKey, model } = req.body;
-    if (!provider || !apiKey) {
-      return res.json({ success: false, error: 'Provider and API key are required' });
+    const { provider, apiKey, model, baseUrl } = req.body;
+    if (!provider) {
+      return res.json({ success: false, error: 'Provider is required' });
     }
 
-    // Read existing .env
-    let envContent = '';
-    if (existsSync(ENV_PATH)) {
-      envContent = readFileSync(ENV_PATH, 'utf-8');
+    // Ollama: no API key needed
+    if (provider === 'ollama') {
+      process.env.OLLAMA_MODEL = model || 'qwen2.5vl:72b';
+      process.env.OLLAMA_BASE_URL = baseUrl || 'http://localhost:11434';
+      console.log(`[Config] ollama config updated in memory (model: ${process.env.OLLAMA_MODEL}, url: ${process.env.OLLAMA_BASE_URL})`);
+      return res.json({ success: true });
     }
 
-    // Clear old API keys
-    envContent = envContent
-      .replace(/^GEMINI_API_KEY=.*$/gm, '')
-      .replace(/^GEMINI_MODEL=.*$/gm, '')
-      .replace(/^OPENAI_API_KEY=.*$/gm, '')
-      .replace(/^OPENAI_MODEL=.*$/gm, '')
-      .replace(/^ANTHROPIC_API_KEY=.*$/gm, '')
-      .replace(/^ANTHROPIC_MODEL=.*$/gm, '')
-      .replace(/^#\s*GEMINI_API_KEY=.*$/gm, '')
-      .replace(/^#\s*OPENAI_API_KEY=.*$/gm, '')
-      .replace(/^#\s*ANTHROPIC_API_KEY=.*$/gm, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-
-    // Add new key
     const keyMap = { gemini: 'GEMINI', openai: 'OPENAI', anthropic: 'ANTHROPIC' };
     const prefix = keyMap[provider];
-    envContent += `\n\n${prefix}_API_KEY=${apiKey}\n${prefix}_MODEL=${model}\n`;
+    if (!prefix) {
+      return res.json({ success: false, error: 'Invalid provider' });
+    }
 
-    writeFileSync(ENV_PATH, envContent.trim() + '\n');
+    // Allow omitting apiKey if one is already configured for this provider
+    const existingKey = process.env[`${prefix}_API_KEY`];
+    const keyToUse = apiKey || existingKey;
+    if (!keyToUse) {
+      return res.json({ success: false, error: 'API key is required' });
+    }
 
-    // Update process.env so the agent picks it up immediately
-    process.env[`${prefix}_API_KEY`] = apiKey;
+    // Store in process.env only (in-memory, not persisted to disk)
+    process.env[`${prefix}_API_KEY`] = keyToUse;
     process.env[`${prefix}_MODEL`] = model;
 
-    console.log(`[Config] ${provider} API key saved (model: ${model})`);
+    console.log(`[Config] ${provider} config updated in memory (model: ${model})`);
     res.json({ success: true });
   } catch (err) {
     res.json({ success: false, error: err.message });
@@ -91,9 +91,15 @@ app.get('/api/config', (req, res) => {
     provider = 'anthropic';
     model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
     keySet = true;
+  } else if (process.env.OLLAMA_MODEL) {
+    provider = 'ollama';
+    model = process.env.OLLAMA_MODEL;
+    keySet = true;
   }
 
-  res.json({ provider, model, keySet });
+  const result = { provider, model, keySet };
+  if (provider === 'ollama') result.baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  res.json(result);
 });
 
 // REST API for device list
