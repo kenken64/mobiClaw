@@ -1,6 +1,6 @@
 # MobiClaw
 
-> AI-powered Android phone control from your browser. Mirror your screen, tap, swipe, and give natural language commands -- the AI reads the screen, thinks, and acts.
+> AI-powered Android phone control from your browser. Mirror your screen, tap, swipe, and give natural language commands — the AI reads the screen, thinks, and acts.
 
 ## How It Works
 
@@ -48,17 +48,19 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 
 ## Features
 
-- **Screen Mirroring** - 3 modes: H.264 (scrcpy, 30fps), WebRTC (DataChannel), PNG (screencap)
+- **Screen Mirroring** - 3 modes: H.264 (scrcpy, up to 60fps), WebRTC (DataChannel), PNG (screencap)
 - **AI Agent** - Natural language phone control with perceive-reason-act loop
-- **Multi-LLM** - Google Gemini, OpenAI GPT, Anthropic Claude (auto-detects from .env)
+- **Multi-LLM** - Google Gemini, OpenAI GPT, Anthropic Claude, Ollama (auto-detects from .env)
 - **Vision** - Screenshots sent to LLM for visual understanding of the screen
 - **Touch Control** - Click-to-tap, drag-to-swipe, scroll wheel from the browser
 - **Navigation** - Back, Home, Recent, Volume, Power buttons
 - **Recording & Download** - Record mirrored screen in-browser and download `.webm`
 - **Wireless ADB** - Connect and pair devices from the browser UI
 - **Auto-Reconnect** - Stream auto-restarts on disconnect
+- **Stop Agent** - Cancel in-flight LLM requests and pending ADB actions instantly
 - **Direct Commands** - `/swipe up`, `/open settings`, `/help` with `/` prefix
-- **Stale Detection** - Discards stale accessibility data, falls back to screenshot-only
+- **Stale Detection** - Discards stale accessibility data, falls back to screenshot-only mode
+- **API Key Storage** - Set API keys from the browser UI (saved to localStorage)
 - **Professional UI** - Tailwind CSS + Lucide icons, shadcn-inspired dark theme
 
 ## Quick Start
@@ -68,7 +70,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 - [Node.js](https://nodejs.org/) v18+
 - [ADB (Android Platform Tools)](https://developer.android.com/tools/releases/platform-tools)
 - An Android device with USB Debugging enabled
-- An API key for one of: Google Gemini, OpenAI, or Anthropic (for AI agent)
+- An API key for one of: Google Gemini, OpenAI, Anthropic, or a local Ollama instance (for AI agent)
 
 ### Install
 
@@ -88,13 +90,16 @@ cp .env.example .env
 
 ```env
 PORT=3000
-ADB_PATH=D:\platform-tools\adb.exe
+# ADB_PATH=/path/to/adb   # optional — auto-detected if adb is in PATH
 
-# Set ONE of these (priority: Gemini > OpenAI > Anthropic):
+# Set ONE of these (priority: Gemini > OpenAI > Anthropic > Ollama):
 GEMINI_API_KEY=your-key-here
 # OPENAI_API_KEY=sk-...
 # ANTHROPIC_API_KEY=sk-ant-...
+# OLLAMA_MODEL=qwen2.5vl:72b
 ```
+
+You can also set API keys directly from the browser UI — they are saved to localStorage and used automatically.
 
 ### Run
 
@@ -124,7 +129,7 @@ Type a natural language goal in the chat panel on the right:
 - `open chrome and search for weather today`
 - `what do you see on the mobile screen?`
 
-The agent reads the screen (accessibility tree + screenshot), sends it to the LLM, and executes the returned action. It loops until the goal is achieved or max steps reached.
+The agent reads the screen (accessibility tree + screenshot), sends it to the LLM, and executes the returned action. It loops until the goal is achieved or max steps is reached. Press the **Stop** button at any time to cancel immediately — in-flight LLM requests are aborted and no further ADB actions are executed.
 
 ### Direct Commands
 
@@ -149,8 +154,9 @@ Prefix with `/` for instant commands without AI:
 | Provider | Model | Best For | Env Variable |
 |----------|-------|----------|-------------|
 | **Google Gemini** | gemini-2.5-flash | Android UI (Google makes Android), fast, cheap | `GEMINI_API_KEY` |
-| **OpenAI** | gpt-4o / gpt-5.4 | General vision tasks | `OPENAI_API_KEY` |
-| **Anthropic** | claude-sonnet-4 | Structured reasoning | `ANTHROPIC_API_KEY` |
+| **OpenAI** | gpt-4o | General vision tasks | `OPENAI_API_KEY` |
+| **Anthropic** | claude-sonnet-4-20250514 | Structured reasoning | `ANTHROPIC_API_KEY` |
+| **Ollama** | qwen2.5vl:72b | Local/offline, no API key needed | `OLLAMA_MODEL` |
 
 ## Configuration
 
@@ -158,7 +164,7 @@ All settings in `.env`:
 
 ```env
 PORT=3000                           # Web server port
-ADB_PATH=D:\platform-tools\adb.exe  # Path to ADB (auto-detected if not set)
+# ADB_PATH=/path/to/adb            # Path to ADB (auto-detected if not set)
 
 # AI Provider (set one)
 GEMINI_API_KEY=...
@@ -170,12 +176,20 @@ OPENAI_MODEL=gpt-4o                 # default
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-4-20250514
 
-# Scrcpy streaming
-SCRCPY_MAX_SIZE=800                  # Max screen dimension
-SCRCPY_BITRATE=2000000              # Video bitrate (2Mbps)
-SCRCPY_MAX_FPS=30                   # Max frames per second
+# Ollama (local models, no API key needed)
+OLLAMA_MODEL=qwen2.5vl:72b          # model name to use
+OLLAMA_BASE_URL=http://localhost:11434  # default
 
-# Optional OCR fusion (improves tiny/non-accessible labels)
+# Scrcpy streaming
+SCRCPY_MAX_SIZE=1280                # Max screen dimension (0 = no limit)
+SCRCPY_BITRATE=8000000              # Video bitrate (8Mbps)
+SCRCPY_MAX_FPS=60                   # Max frames per second
+
+# Agent loop tuning
+AGENT_MAX_STEPS=20                  # Max steps per goal
+AGENT_STEP_DELAY_MS=800             # Delay between steps (ms)
+
+# Optional OCR fusion (improves tiny/non-accessible labels, requires GEMINI_API_KEY)
 AGENT_OCR_ENABLE=1                  # 1=enable OCR fusion, 0=off (default off)
 AGENT_OCR_EVERY_N_STEPS=2           # OCR cadence to control cost/latency
 AGENT_OCR_MAX_RESULTS=12            # Max OCR boxes merged per step
@@ -207,6 +221,7 @@ server/
     agent.js            # AI agent (perceive -> reason -> act loop)
     perception.js       # Screen reader (uiautomator + screencap)
     command-handler.js  # Direct /command parser
+    benchmark-runner.js # Deterministic benchmark suite
 
 client/
   index.html            # Tailwind UI (3-panel layout)
@@ -219,7 +234,7 @@ client/
 
 - **Android 16** revokes screen capture every ~5 seconds (OS security feature). Auto-reconnect handles this, but there's a brief gap. A companion Android app with MediaProjection permission would fix this permanently.
 - **uiautomator** can return stale accessibility data on Android 16. MobiClaw detects this by comparing the foreground app with element packages and falls back to screenshot-only mode.
-- **Gemini free tier** has rate limits (20 req/day). The agent auto-retries after the cooldown period.
+- **Gemini free tier** has rate limits (requests/day). The agent auto-retries after the cooldown period.
 
 ## Tech Stack
 

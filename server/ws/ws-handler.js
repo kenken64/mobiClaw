@@ -285,7 +285,7 @@ export function createWsHandler(server) {
           if (activeAgent) {
             activeAgent.stop();
             activeAgent = null;
-            sendJson(ws, { type: 'agent-step', type: 'stopped', message: 'Agent stopped' });
+            sendJson(ws, { type: 'agent-step', stepType: 'stopped', message: 'Agent stopped' });
           }
           break;
         }

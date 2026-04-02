@@ -71,6 +71,7 @@ export class Agent {
     this._gemini = null;
     this._geminiChat = null;
     this._ollama = null;
+    this._abortController = null;
   }
 
   async init() {
@@ -97,6 +98,7 @@ export class Agent {
   async run(goal) {
     await this.init();
     this.running = true;
+    this._abortController = new AbortController();
 
     const maxSteps = Number.isFinite(this.options.maxSteps)
       ? this.options.maxSteps
@@ -211,6 +213,9 @@ export class Agent {
 
         const responseText = await this._callLLM(screenText, screenshot);
 
+        // Check if stopped while waiting for LLM response
+        if (!this.running) break;
+
         // Parse decision - try multiple extraction strategies
         let decision = null;
         const cleaned = responseText
@@ -270,6 +275,9 @@ export class Agent {
         await sleep(stepDelayMs);
 
       } catch (err) {
+        // Intentional stop — abort signal fired or running was cleared
+        if (!this.running || err.name === 'AbortError') break;
+
         const msg = err.message || String(err);
         console.error('[Agent] Step error:', msg);
 
@@ -310,6 +318,8 @@ export class Agent {
 
   stop() {
     this.running = false;
+    this._abortController?.abort();
+    this._geminiChat = null;
   }
 
   async _callLLM(screenText, screenshotBase64) {
@@ -347,7 +357,7 @@ export class Agent {
       });
     }
 
-    const response = await this._geminiChat.sendMessage({ message: parts });
+    const response = await this._geminiChat.sendMessage({ message: parts }, { signal: this._abortController?.signal });
     return response.text || '';
   }
 
@@ -368,7 +378,7 @@ export class Agent {
       model,
       max_completion_tokens: 1024,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...this._messages],
-    });
+    }, { signal: this._abortController?.signal });
 
     const text = response.choices[0]?.message?.content || '';
     this._messages.push({ role: 'assistant', content: text });
@@ -393,7 +403,7 @@ export class Agent {
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: this._messages,
-    });
+    }, { signal: this._abortController?.signal });
 
     const text = response.content[0]?.text || '';
     this._messages.push({ role: 'assistant', content: text });
@@ -417,7 +427,7 @@ export class Agent {
       model,
       max_tokens: 1024,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...this._messages],
-    });
+    }, { signal: this._abortController?.signal });
 
     const text = response.choices[0]?.message?.content || '';
     this._messages.push({ role: 'assistant', content: text });
