@@ -255,7 +255,10 @@ export class CommandHandler {
 - **volume up/down/mute**
 - **wake** / **sleep** - Screen on/off
 - **shell** [command] - Run raw ADB shell command
-- **list apps** - Show installed apps`
+- **list apps** - Show installed apps
+- **benchmark compare** - Run deterministic baseline vs enhanced suite
+- **benchmark baseline|enhanced** - Run a single benchmark suite
+- **benchmark stop** - Stop an active benchmark`
       };
     }
 

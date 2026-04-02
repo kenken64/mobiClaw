@@ -54,6 +54,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 - **Vision** - Screenshots sent to LLM for visual understanding of the screen
 - **Touch Control** - Click-to-tap, drag-to-swipe, scroll wheel from the browser
 - **Navigation** - Back, Home, Recent, Volume, Power buttons
+- **Recording & Download** - Record mirrored screen in-browser and download `.webm`
 - **Wireless ADB** - Connect and pair devices from the browser UI
 - **Auto-Reconnect** - Stream auto-restarts on disconnect
 - **Direct Commands** - `/swipe up`, `/open settings`, `/help` with `/` prefix
@@ -112,6 +113,7 @@ Open **http://localhost:3000** in Chrome/Edge.
 2. Choose a mode: **H.264** (recommended), WebRTC, or PNG
 3. Click **Start Mirror**
 4. Click/drag on the screen to tap/swipe the phone
+5. Use **Recording** panel: Start -> Stop -> Download video
 
 ### AI Agent
 
@@ -136,6 +138,10 @@ Prefix with `/` for instant commands without AI:
 | `/swipe [dir]` | `/swipe up`, `/swipe left` |
 | `/press [key]` | `/press home`, `/press back` |
 | `/screenshot` | Take a screenshot |
+| `/benchmark compare` | Run deterministic baseline vs enhanced benchmark |
+| `/benchmark baseline` | Run baseline suite only |
+| `/benchmark enhanced` | Run enhanced suite only |
+| `/benchmark stop` | Stop active benchmark |
 | `/help` | Show all commands |
 
 ## Supported LLM Providers
@@ -168,6 +174,22 @@ ANTHROPIC_MODEL=claude-sonnet-4-20250514
 SCRCPY_MAX_SIZE=800                  # Max screen dimension
 SCRCPY_BITRATE=2000000              # Video bitrate (2Mbps)
 SCRCPY_MAX_FPS=30                   # Max frames per second
+
+# Optional OCR fusion (improves tiny/non-accessible labels)
+AGENT_OCR_ENABLE=1                  # 1=enable OCR fusion, 0=off (default off)
+AGENT_OCR_EVERY_N_STEPS=2           # OCR cadence to control cost/latency
+AGENT_OCR_MAX_RESULTS=12            # Max OCR boxes merged per step
+GEMINI_OCR_MODEL=gemini-2.5-flash-lite
+
+# Modal heuristics tuning (for dialog/overlay detection)
+AGENT_MODAL_PANEL_MIN_RATIO=0.45    # Larger => stricter modal detection
+AGENT_MODAL_TOP_REGION_MAX=0.20     # Larger => allow deeper panel origin
+AGENT_MODAL_CENTER_MIN_RATIO=0.08   # Lower => include more modal candidates
+AGENT_MODAL_DEBUG=1                 # Log modal metrics in server console
+
+# Benchmark runner tuning
+BENCHMARK_MAX_STEPS=12
+BENCHMARK_STEP_DELAY_MS=300
 ```
 
 ## Architecture
