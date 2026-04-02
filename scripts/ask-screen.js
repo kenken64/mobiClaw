@@ -13,6 +13,14 @@ import WebSocket from 'ws';
 
 const BASE_URL = process.env.MOBICLAW_URL || 'http://localhost:3000';
 const WS_URL   = BASE_URL.replace(/^http/, 'ws');
+const ITERATION_DELAY_MS = 30_000;
+
+let shouldStop = false;
+
+process.on('SIGINT', () => {
+  shouldStop = true;
+  console.log('\nStopping ask-screen loop...');
+});
 
 // Parse args: optional --device <serial> and optional prompt
 let deviceSerial = null;
@@ -34,7 +42,11 @@ async function getFirstDevice() {
   return devices[0].serial;
 }
 
-async function main() {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runSingleIteration() {
   // Resolve device
   if (!deviceSerial) {
     process.stdout.write('Fetching devices... ');
@@ -119,6 +131,21 @@ async function main() {
       reject(err);
     });
   });
+}
+
+async function main() {
+  while (!shouldStop) {
+    try {
+      await runSingleIteration();
+    } catch (err) {
+      console.error('Error:', err.message);
+    }
+
+    if (shouldStop) break;
+
+    console.log(`Waiting ${ITERATION_DELAY_MS / 1000}s before next run...`);
+    await sleep(ITERATION_DELAY_MS);
+  }
 }
 
 main().catch((err) => {
