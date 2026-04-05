@@ -10,6 +10,7 @@ const btnRefresh = document.getElementById('btn-refresh');
 const btnConnect = document.getElementById('btn-connect');
 const canvas = document.getElementById('screen-canvas');
 const videoEl = document.getElementById('screen-video');
+const deviceShell = document.querySelector('.device-shell');
 const placeholder = document.getElementById('canvas-placeholder');
 const infoPanel = document.getElementById('device-info-panel');
 const statusDot = document.getElementById('status-dot');
@@ -127,6 +128,29 @@ const pngRenderer = new PngRenderer(canvas);
 const h264Renderer = new H264Renderer(canvas);
 const webrtcRenderer = new WebrtcRenderer(videoEl, canvas);
 
+function setShellOrientation(info) {
+  const width = Number(info?.width) || 0;
+  const height = Number(info?.height) || 0;
+  if (!deviceShell || !width || !height) return;
+
+  const isLandscape = width > height;
+  deviceShell.classList.toggle('is-landscape', isLandscape);
+  deviceShell.classList.toggle('is-portrait', !isLandscape);
+  deviceShell.dataset.orientation = isLandscape ? 'landscape' : 'portrait';
+}
+
+function resetShellOrientation() {
+  if (!deviceShell) return;
+  deviceShell.classList.remove('is-landscape');
+  deviceShell.classList.add('is-portrait');
+  deviceShell.dataset.orientation = 'portrait';
+}
+
+pngRenderer.onDimensionsChange = setShellOrientation;
+h264Renderer.onDimensionsChange = setShellOrientation;
+webrtcRenderer.onDimensionsChange = setShellOrientation;
+resetShellOrientation();
+
 // Initialize
 const ws = new WsClient();
 // Touch handler works on both canvas and video element
@@ -176,6 +200,7 @@ ws.on('disconnected', () => {
   placeholder.classList.remove('hidden');
   statusMode.textContent = '--';
   webrtcRenderer.close();
+  resetShellOrientation();
 });
 
 ws.on('capabilities', (msg) => {
@@ -370,6 +395,7 @@ ws.on('stream-stopped', () => {
   statusMode.textContent = '--';
   activeRenderer = null;
   webrtcRenderer.close();
+  resetShellOrientation();
 });
 
 ws.on('fps', (msg) => {

@@ -64,8 +64,10 @@ aside .overflow-y-auto::-webkit-scrollbar,
 
 .device-shell {
   position: relative;
-  width: min(100%, 430px);
-  height: min(calc(100vh - 40px), 860px);
+  --device-shell-width: min(100%, 430px);
+  --device-shell-height: min(calc(100vh - 40px), 860px);
+  width: var(--device-shell-width);
+  height: var(--device-shell-height);
   padding: 12px;
   border-radius: 38px;
   background:
@@ -75,6 +77,12 @@ aside .overflow-y-auto::-webkit-scrollbar,
     inset 0 0 0 1px hsl(0 0% 100% / 0.06),
     inset 0 -10px 24px hsl(0 0% 0% / 0.45),
     inset 0 12px 24px hsl(0 0% 100% / 0.04);
+  transition: width 180ms ease, height 180ms ease, border-radius 180ms ease;
+}
+
+.device-shell.is-landscape {
+  --device-shell-width: min(100%, 860px);
+  --device-shell-height: min(calc(100vh - 40px), 430px);
 }
 
 .device-shell::before {
@@ -95,6 +103,10 @@ aside .overflow-y-auto::-webkit-scrollbar,
   background:
     linear-gradient(180deg, hsl(220 8% 8%), hsl(220 9% 4%));
   overflow: hidden;
+}
+
+.device-shell.is-landscape .device-shell-inner {
+  padding: 14px 14px 14px 44px;
 }
 
 .device-shell-screen {
@@ -131,12 +143,27 @@ aside .overflow-y-auto::-webkit-scrollbar,
   pointer-events: none;
 }
 
+.device-shell.is-landscape .device-shell-island {
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 126px;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .device-shell-speaker {
   width: 46px;
   height: 6px;
   border-radius: 999px;
   background: linear-gradient(180deg, hsl(220 8% 18%), hsl(220 8% 10%));
   box-shadow: inset 0 1px 1px hsl(0 0% 100% / 0.05);
+}
+
+.device-shell.is-landscape .device-shell-speaker {
+  width: 6px;
+  height: 46px;
 }
 
 .device-shell-camera {
@@ -173,6 +200,32 @@ aside .overflow-y-auto::-webkit-scrollbar,
   right: auto;
   top: 180px;
   height: 64px;
+}
+
+.device-shell.is-landscape .device-shell-side-button {
+  width: 56px;
+  height: 4px;
+  top: auto;
+  bottom: -4px;
+  right: auto;
+}
+
+.device-shell.is-landscape .device-shell-side-button-top {
+  right: 140px;
+  left: auto;
+}
+
+.device-shell.is-landscape .device-shell-side-button-mid {
+  right: 220px;
+  left: auto;
+  width: 86px;
+}
+
+.device-shell.is-landscape .device-shell-side-button-low {
+  top: -4px;
+  bottom: auto;
+  left: 180px;
+  width: 64px;
 }
 
 .device-screen-surface {
@@ -385,9 +438,14 @@ input[type="number"] {
   }
 
   .device-shell {
-    width: min(100%, 360px);
-    height: min(calc(100vh - 24px), 720px);
+    --device-shell-width: min(100%, 360px);
+    --device-shell-height: min(calc(100vh - 24px), 720px);
     border-radius: 32px;
+  }
+
+  .device-shell.is-landscape {
+    --device-shell-width: min(100%, 720px);
+    --device-shell-height: min(calc(100vh - 24px), 360px);
   }
 
   .device-shell-inner {

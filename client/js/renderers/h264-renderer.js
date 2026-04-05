@@ -10,6 +10,7 @@ export class H264Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    this.onDimensionsChange = null;
     this._decoder = null;
     this._configured = false;
     this._configData = null;       // Raw SPS+PPS bytes (Annex B)
@@ -23,6 +24,8 @@ export class H264Renderer {
     this._drainScheduled = false;
     this._latestDecodedFrame = null;
     this._paintScheduled = false;
+    this._lastReportedWidth = 0;
+    this._lastReportedHeight = 0;
     if (this.ctx) {
       this.ctx.imageSmoothingEnabled = false;
     }
@@ -244,6 +247,7 @@ export class H264Renderer {
       if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
         this.canvas.width = frame.displayWidth;
         this.canvas.height = frame.displayHeight;
+        this._notifyDimensions(frame.displayWidth, frame.displayHeight);
       }
       this.ctx.drawImage(frame, 0, 0);
       frame.close();
@@ -251,5 +255,19 @@ export class H264Renderer {
         this._schedulePaint();
       }
     });
+  }
+
+  _notifyDimensions(width, height) {
+    if (!width || !height) return;
+    if (width === this._lastReportedWidth && height === this._lastReportedHeight) return;
+    this._lastReportedWidth = width;
+    this._lastReportedHeight = height;
+    if (typeof this.onDimensionsChange === 'function') {
+      this.onDimensionsChange({
+        width,
+        height,
+        orientation: width > height ? 'landscape' : 'portrait',
+      });
+    }
   }
 }

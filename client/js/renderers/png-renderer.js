@@ -2,6 +2,7 @@ export class PngRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    this.onDimensionsChange = null;
     this._frameCount = 0;
     this._lastFpsTime = performance.now();
     this.clientFps = 0;
@@ -9,6 +10,8 @@ export class PngRenderer {
     this._renderScheduled = false;
     this._latestBitmap = null;
     this._paintScheduled = false;
+    this._lastReportedWidth = 0;
+    this._lastReportedHeight = 0;
     if (this.ctx) {
       this.ctx.imageSmoothingEnabled = false;
     }
@@ -72,6 +75,7 @@ export class PngRenderer {
       if (this.canvas.width !== bitmap.width || this.canvas.height !== bitmap.height) {
         this.canvas.width = bitmap.width;
         this.canvas.height = bitmap.height;
+        this._notifyDimensions(bitmap.width, bitmap.height);
       }
       this.ctx.drawImage(bitmap, 0, 0);
       bitmap.close();
@@ -79,5 +83,19 @@ export class PngRenderer {
         this._schedulePaint();
       }
     });
+  }
+
+  _notifyDimensions(width, height) {
+    if (!width || !height) return;
+    if (width === this._lastReportedWidth && height === this._lastReportedHeight) return;
+    this._lastReportedWidth = width;
+    this._lastReportedHeight = height;
+    if (typeof this.onDimensionsChange === 'function') {
+      this.onDimensionsChange({
+        width,
+        height,
+        orientation: width > height ? 'landscape' : 'portrait',
+      });
+    }
   }
 }

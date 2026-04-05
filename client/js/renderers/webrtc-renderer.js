@@ -14,6 +14,12 @@ export class WebrtcRenderer {
     this.dataChannel = null;
     this._h264 = new H264Renderer(canvas);
     this._connected = false;
+    this.onDimensionsChange = null;
+    this._h264.onDimensionsChange = (info) => {
+      if (typeof this.onDimensionsChange === 'function') {
+        this.onDimensionsChange(info);
+      }
+    };
   }
 
   get supported() {
