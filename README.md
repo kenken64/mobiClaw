@@ -60,6 +60,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 - **Auto-Reconnect** - Stream auto-restarts on disconnect
 - **Stop Agent** - Cancel in-flight LLM requests and pending ADB actions instantly
 - **Direct Commands** - `/swipe up`, `/open settings`, `/help` with `/` prefix
+- **Playback Lab** - Save recorded AI runs as replayable scripts and run them again from the web UI
 - **Stale Detection** - Discards stale accessibility data, falls back to screenshot-only mode
 - **API Key Storage** - Set API keys from the browser UI (saved to localStorage)
 - **Professional UI** - Tailwind CSS + Lucide icons, shadcn-inspired dark theme
@@ -98,6 +99,7 @@ GEMINI_API_KEY=your-key-here
 # OPENAI_API_KEY=sk-...
 # ANTHROPIC_API_KEY=sk-ant-...
 # OLLAMA_MODEL=qwen2.5vl:72b
+# OLLAMA_MODEL=gemma4:e4b
 ```
 
 You can also set API keys directly from the browser UI — they are saved to localStorage and used automatically.
@@ -147,6 +149,20 @@ Press the **Stop** button at any time to cancel immediately. In-flight LLM reque
 
 For drag-heavy tasks such as sliders, drag-and-drop, and grid-based puzzle games, the agent now prefers precise drag actions over taps or scroll swipes.
 
+Runs are recorded automatically under `artifacts/runs/`. In the app sidebar, **Playback Lab** lets you refresh recorded runs, promote a run into a saved script, and replay a saved script against the currently selected device.
+
+Playback now supports three replay policies in the web UI:
+
+- `Strict` - stop on the first failure
+- `Tolerant` - allow bounded soft failures before stopping
+- `Continue` - continue through failures to gather a broader failure report
+
+You can also configure replay retry count and hard/soft failure limits before starting playback.
+
+When semantic fallback is enabled, replay will try to relocate tap and drag targets using the recorded element text/id/type and approximate position before falling back to the original coordinates. This helps scripts survive moderate UI drift on the same app flow.
+
+Saved replay runs can also be inspected from the web UI. The replay-result viewer compares expected recorded screenshots from the source run with the live before/after screenshots captured during replay, step by step.
+
 ### Direct Commands
 
 Prefix with `/` for instant commands without AI:
@@ -190,7 +206,7 @@ The script connects to the WebSocket server, asks the agent about the current sc
 | **Google Gemini** | gemini-2.5-flash | Android UI (Google makes Android), fast, cheap | `GEMINI_API_KEY` |
 | **OpenAI** | gpt-4o | General vision tasks | `OPENAI_API_KEY` |
 | **Anthropic** | claude-sonnet-4-20250514 | Structured reasoning | `ANTHROPIC_API_KEY` |
-| **Ollama** | qwen2.5vl:72b | Local/offline, no API key needed | `OLLAMA_MODEL` |
+| **Ollama** | qwen2.5vl:72b, gemma4:e4b | Local/offline, no API key needed | `OLLAMA_MODEL` |
 
 ## Configuration
 

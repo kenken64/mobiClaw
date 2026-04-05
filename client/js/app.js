@@ -41,6 +41,36 @@ const btnRecordDownload = document.getElementById('btn-record-download');
 const recordingStatus = document.getElementById('recording-status');
 const recordingTimer = document.getElementById('recording-timer');
 const recordingBadge = document.getElementById('recording-badge');
+const runSelect = document.getElementById('run-select');
+const btnRunsRefresh = document.getElementById('btn-runs-refresh');
+const btnViewRun = document.getElementById('btn-view-run');
+const scriptNameInput = document.getElementById('script-name');
+const btnSaveScript = document.getElementById('btn-save-script');
+const scriptSelect = document.getElementById('script-select');
+const btnScriptsRefresh = document.getElementById('btn-scripts-refresh');
+const btnReplayScript = document.getElementById('btn-replay-script');
+const btnReplayStop = document.getElementById('btn-replay-stop');
+const btnReplaysRefresh = document.getElementById('btn-replays-refresh');
+const replaySelect = document.getElementById('replay-select');
+const btnViewReplay = document.getElementById('btn-view-replay');
+const playbackStatus = document.getElementById('playback-status');
+const replayMode = document.getElementById('replay-mode');
+const replayRetries = document.getElementById('replay-retries');
+const replayHardFailures = document.getElementById('replay-hard-failures');
+const replaySoftFailures = document.getElementById('replay-soft-failures');
+const replaySemanticFallback = document.getElementById('replay-semantic-fallback');
+const runDetailDialog = document.getElementById('run-detail-dialog');
+const runDetailOverlay = document.getElementById('run-detail-overlay');
+const btnCloseRunDetail = document.getElementById('btn-close-run-detail');
+const runDetailSummary = document.getElementById('run-detail-summary');
+const runStepList = document.getElementById('run-step-list');
+const runStepDetail = document.getElementById('run-step-detail');
+const replayDetailDialog = document.getElementById('replay-detail-dialog');
+const replayDetailOverlay = document.getElementById('replay-detail-overlay');
+const btnCloseReplayDetail = document.getElementById('btn-close-replay-detail');
+const replayDetailSummary = document.getElementById('replay-detail-summary');
+const replayStepList = document.getElementById('replay-step-list');
+const replayStepDetail = document.getElementById('replay-step-detail');
 
 // State
 let streaming = false;
@@ -56,6 +86,41 @@ let recordingUrl = null;
 let recordingStartedAt = 0;
 let recordingTimerInterval = null;
 let recordingMimeType = 'video/webm';
+let replayRunning = false;
+let currentRunDetail = null;
+let currentReplayDetail = null;
+let wifiConnectionTarget = null;
+
+function isWirelessSerial(serial) {
+  return typeof serial === 'string' && (serial.includes(':') || serial.includes('_adb-tls-connect._tcp'));
+}
+
+function normalizeWirelessSerial(serial) {
+  return typeof serial === 'string' ? serial.replace(/\s+\(\d+\)(?=\._adb-tls-connect\._tcp$)/, '') : serial;
+}
+
+function findBestWirelessDevice(devices) {
+  if (!Array.isArray(devices) || devices.length === 0) return null;
+  if (wifiConnectedSerial) {
+    const exact = devices.find((device) => device.serial === wifiConnectedSerial);
+    if (exact) return exact;
+  }
+  const wirelessDevices = devices.filter((device) => isWirelessSerial(device.serial));
+  if (wirelessDevices.length === 0) return null;
+
+  if (wifiConnectedSerial) {
+    const normalizedCurrent = normalizeWirelessSerial(wifiConnectedSerial);
+    const renamed = wirelessDevices.find((device) => normalizeWirelessSerial(device.serial) === normalizedCurrent);
+    if (renamed) return renamed;
+  }
+
+  if (wifiConnectionTarget) {
+    const byTarget = wirelessDevices.find((device) => device.serial === wifiConnectionTarget || device.serial.includes(wifiConnectionTarget));
+    if (byTarget) return byTarget;
+  }
+
+  return wirelessDevices.length === 1 ? wirelessDevices[0] : null;
+}
 
 // Renderers
 const pngRenderer = new PngRenderer(canvas);
@@ -71,6 +136,13 @@ const touchVideo = new TouchHandler(videoEl, (msg) => ws.send(msg));
 function getSelectedMode() {
   const checked = document.querySelector('input[name="mode"]:checked');
   return checked ? checked.value : 'screencap';
+}
+
+function setPreferredMode(mode) {
+  const target = document.querySelector(`input[name="mode"][value="${mode}"]`);
+  if (target && !target.disabled) {
+    target.checked = true;
+  }
 }
 
 // --- WebSocket Events ---
@@ -109,7 +181,9 @@ ws.on('disconnected', () => {
 ws.on('capabilities', (msg) => {
   const scrcpyRadio = document.querySelector('input[name="mode"][value="scrcpy"]');
   const webrtcRadio = document.querySelector('input[name="mode"][value="webrtc"]');
+  const ultraRadio = document.querySelector('input[name="mode"][value="ultra"]');
   const screenrecordRadio = document.querySelector('input[name="mode"][value="screenrecord"]');
+  const screencapRadio = document.querySelector('input[name="mode"][value="screencap"]');
 
   // screenrecord is always available (system binary)
   if (screenrecordRadio) screenrecordRadio.disabled = false;
@@ -117,16 +191,31 @@ ws.on('capabilities', (msg) => {
   // scrcpy/webrtc need the scrcpy server
   if (scrcpyRadio) scrcpyRadio.disabled = !msg.scrcpy;
   if (webrtcRadio) webrtcRadio.disabled = !msg.scrcpy || !webrtcRenderer.supported;
+  if (ultraRadio) ultraRadio.disabled = !msg.scrcpy || !webrtcRenderer.supported;
 
   // H.264 modes need WebCodecs
   if (!h264Renderer.supported) {
     if (scrcpyRadio) scrcpyRadio.disabled = true;
+    if (webrtcRadio) webrtcRadio.disabled = true;
+    if (ultraRadio) ultraRadio.disabled = true;
     if (screenrecordRadio) screenrecordRadio.disabled = true;
-    document.querySelector('input[name="mode"][value="screencap"]').checked = true;
+    if (screencapRadio) screencapRadio.checked = true;
+    return;
+  }
+
+  const selectedMode = getSelectedMode();
+  const currentRadio = document.querySelector(`input[name="mode"][value="${selectedMode}"]`);
+  if (!currentRadio || currentRadio.disabled) {
+    if (webrtcRadio && !webrtcRadio.disabled) setPreferredMode('webrtc');
+    else if (ultraRadio && !ultraRadio.disabled) setPreferredMode('ultra');
+    else if (scrcpyRadio && !scrcpyRadio.disabled) setPreferredMode('scrcpy');
+    else if (screenrecordRadio && !screenrecordRadio.disabled) setPreferredMode('screenrecord');
+    else if (screencapRadio) setPreferredMode('screencap');
   }
 });
 
 ws.on('device-list', (msg) => {
+  const previousSelectedDevice = selectedDevice;
   deviceSelect.innerHTML = '<option value="">Select device...</option>';
   msg.devices.forEach(d => {
     const opt = document.createElement('option');
@@ -137,21 +226,41 @@ ws.on('device-list', (msg) => {
     deviceSelect.appendChild(opt);
   });
 
+  const reboundWirelessDevice = findBestWirelessDevice(msg.devices);
+  if (reboundWirelessDevice) {
+    wifiConnectedSerial = reboundWirelessDevice.serial;
+  }
+
   if (msg.devices.length === 0) {
     if (!selectedDevice) setStatus('no-device', 'No device');
   } else if (msg.devices.length === 1) {
     deviceSelect.value = msg.devices[0].serial;
     deviceSelect.dispatchEvent(new Event('change'));
+  } else if (previousSelectedDevice && msg.devices.find(d => d.serial === previousSelectedDevice)) {
+    deviceSelect.value = previousSelectedDevice;
+  } else if (reboundWirelessDevice) {
+    deviceSelect.value = reboundWirelessDevice.serial;
+    if (selectedDevice !== reboundWirelessDevice.serial) {
+      deviceSelect.dispatchEvent(new Event('change'));
+    }
   }
 
-  // If wifi device is gone, reset wifi button
-  if (wifiConnectedSerial && !msg.devices.find(d => d.serial === wifiConnectedSerial)) {
+  // If wifi device is gone, reset wifi button only when no matching wireless transport remains.
+  if (wifiConnectedSerial && !findBestWirelessDevice(msg.devices)) {
     wifiConnectedSerial = null;
+    wifiConnectionTarget = null;
+    updateWifiButton();
+  } else if (wifiConnectedSerial) {
     updateWifiButton();
   }
 
   // If selected device was disconnected, reset UI
   if (selectedDevice && !msg.devices.find(d => d.serial === selectedDevice)) {
+    if (reboundWirelessDevice) {
+      selectedDevice = reboundWirelessDevice.serial;
+      deviceSelect.value = reboundWirelessDevice.serial;
+      return;
+    }
     selectedDevice = null;
     btnConnect.disabled = true;
     btnDeviceInfo.classList.add('hidden');
@@ -205,7 +314,11 @@ ws.on('stream-started', (msg) => {
   setStatus('streaming', 'Streaming');
 
   if (msg.mode === 'webrtc') {
-    statusMode.textContent = 'WebRTC';
+    statusMode.textContent = 'Agent';
+    activeRenderer = webrtcRenderer;
+    touch.mode = 'continuous';
+  } else if (msg.mode === 'ultra') {
+    statusMode.textContent = 'Ultra';
     activeRenderer = webrtcRenderer;
     touch.mode = 'continuous';
   } else if (msg.mode === 'screenrecord') {
@@ -265,6 +378,47 @@ ws.on('fps', (msg) => {
 
 ws.on('error', (msg) => {
   console.error('[Server]', msg.message);
+  if (msg.message) setPlaybackStatus(msg.message, true);
+});
+
+ws.on('run-recorded', () => {
+  refreshRunList();
+});
+
+ws.on('replay-start', (msg) => {
+  replayRunning = true;
+  updatePlaybackControls();
+  setPlaybackStatus(`Replay started: ${msg.scriptName} on ${msg.serial} (${msg.policy.mode})`);
+  addAgentStep('start', `Replay started: "${msg.scriptName}" (${msg.stepCount} steps)`);
+});
+
+ws.on('replay-step', (msg) => {
+  addAgentStep('perceive', `Replay step ${msg.step}: ${msg.name}`);
+});
+
+ws.on('replay-step-result', (msg) => {
+  const type = msg.evaluation?.verdict === 'pass' ? 'done' : msg.willRetry ? 'warn' : 'error';
+  const suffix = msg.willRetry ? ` (retrying, attempt ${msg.attempt})` : '';
+  const relocation = msg.relocation?.relocated
+    ? ` [relocated to ${msg.relocation.match?.text || msg.relocation.match?.id || msg.relocation.match?.type || 'matched target'}]`
+    : '';
+  addAgentStep(type, `Replay step ${msg.step}: ${msg.evaluation?.summary || 'No summary'}${relocation}${suffix}`);
+});
+
+ws.on('replay-done', (msg) => {
+  replayRunning = false;
+  updatePlaybackControls();
+  const counts = msg.failureCounts ? ` (hard=${msg.failureCounts.hard}, soft=${msg.failureCounts.soft})` : '';
+  setPlaybackStatus(`${msg.summary}${counts}`, msg.status === 'failed');
+  addAgentStep(msg.status === 'completed' ? 'done' : 'warn', `Replay ${msg.status}: ${msg.summary}${counts}`);
+  refreshReplayList();
+});
+
+ws.on('replay-error', (msg) => {
+  replayRunning = false;
+  updatePlaybackControls();
+  setPlaybackStatus(msg.message, true);
+  addAgentStep('error', `Replay error: ${msg.message}`);
 });
 
 ws.on('stream-reconnecting', () => {
@@ -283,8 +437,9 @@ ws.on('stream-reconnected', (msg) => {
 
 ws.on('wifi-connect-result', (msg) => {
   showWifiStatus(msg.success, msg.message);
-  if (msg.success && msg.serial) {
-    wifiConnectedSerial = msg.serial;
+  if (msg.success) {
+    wifiConnectedSerial = msg.serial || wifiConnectedSerial;
+    wifiConnectionTarget = msg.target || (msg.host && msg.port ? `${msg.host}:${msg.port}` : msg.host || wifiConnectionTarget);
     updateWifiButton();
   }
 });
@@ -300,6 +455,7 @@ ws.on('wifi-pair-result', (msg) => {
 ws.on('wifi-disconnect-result', (msg) => {
   showWifiStatus(msg.success, msg.message);
   wifiConnectedSerial = null;
+  wifiConnectionTarget = null;
   updateWifiButton();
 });
 
@@ -315,6 +471,7 @@ deviceSelect.addEventListener('change', () => {
   selectedDevice = deviceSelect.value;
   btnConnect.disabled = !selectedDevice;
   updateRecordingControls();
+  updatePlaybackControls();
 
   if (selectedDevice) {
     setStatus('connected', 'Connected');
@@ -359,8 +516,9 @@ btnWifiConnect.addEventListener('click', () => {
   // If connected, disconnect
   if (wifiConnectedSerial) {
     showWifiStatus(null, 'Disconnecting...');
-    ws.send({ type: 'wifi-disconnect', serial: wifiConnectedSerial });
+    ws.send({ type: 'wifi-disconnect', serial: wifiConnectionTarget || wifiConnectedSerial });
     wifiConnectedSerial = null;
+    wifiConnectionTarget = null;
     updateWifiButton();
     return;
   }
@@ -369,6 +527,7 @@ btnWifiConnect.addEventListener('click', () => {
   const port = parseInt(connectPort.value, 10);
   if (!host) { showWifiStatus(false, 'Enter an IP address'); return; }
   if (!port) { showWifiStatus(false, 'Enter a port number'); return; }
+  wifiConnectionTarget = `${host}:${port}`;
   showWifiStatus(null, 'Connecting...');
   ws.send({ type: 'wifi-connect', host, port });
 });
@@ -482,6 +641,454 @@ function updateRecordingControls() {
   if (!streaming && !activeRecording && !recordingBlob) {
     setRecordingStatus('Start mirroring to enable recording.');
   }
+}
+
+function setPlaybackStatus(text, isError = false) {
+  playbackStatus.textContent = text;
+  playbackStatus.className = `text-[11px] min-h-[16px] ${isError ? 'text-red-400' : 'text-muted-foreground'}`;
+}
+
+function updatePlaybackControls() {
+  btnViewRun.disabled = !runSelect.value;
+  btnSaveScript.disabled = !runSelect.value;
+  btnReplayScript.disabled = !scriptSelect.value || !selectedDevice || replayRunning;
+  btnReplayStop.disabled = !replayRunning;
+  btnViewReplay.disabled = !replaySelect.value;
+}
+
+function artifactUrl(path) {
+  return path ? `/artifacts/${path.replace(/\\/g, '/')}` : '';
+}
+
+function deriveTargetHint(step) {
+  if (step.targetHint) return step.targetHint;
+  const elements = step.before?.elements || [];
+  const coordinates = step.decision?.coordinates;
+  if (!Array.isArray(coordinates) || elements.length === 0) return null;
+
+  let best = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const element of elements) {
+    const tap = element.tap || element.center;
+    if (!Array.isArray(tap)) continue;
+    const dx = tap[0] - coordinates[0];
+    const dy = tap[1] - coordinates[1];
+    const currentDistance = Math.sqrt(dx * dx + dy * dy);
+    if (currentDistance < bestDistance) {
+      bestDistance = currentDistance;
+      best = element;
+    }
+  }
+
+  if (!best) return null;
+  return {
+    text: best.text || best.desc || null,
+    id: best.id || null,
+    type: best.type || null,
+    tap: best.tap || best.center || null,
+  };
+}
+
+function renderRunStepDetail(run, step) {
+  const targetHint = deriveTargetHint(step);
+  const beforeImage = artifactUrl(`runs/${run.runId}/${step.before?.image || ''}`);
+  const afterImage = artifactUrl(`runs/${run.runId}/${step.after?.image || ''}`);
+  const detailLines = [
+    ['Action', step.decision?.action || '--'],
+    ['Sub-goal', step.subGoal || '--'],
+    ['Foreground', `${step.before?.foregroundApp || 'unknown'} -> ${step.after?.foregroundApp || 'unknown'}`],
+    ['Verdict', `${step.evaluation?.verdict || '--'}${step.evaluation?.failureCategory ? ` (${step.evaluation.failureCategory})` : ''}`],
+    ['Reason', step.decision?.reason || '--'],
+    ['Target hint', targetHint ? (targetHint.text || targetHint.id || targetHint.type || 'matched nearby element') : '--'],
+    ['Coordinates', Array.isArray(step.decision?.coordinates) ? step.decision.coordinates.join(', ') : '--'],
+  ];
+
+  runStepDetail.innerHTML = `
+    <div class="space-y-3">
+      <div>
+        <div class="text-sm font-semibold">Step ${step.step}</div>
+        <div class="text-xs text-muted-foreground">${escapeHtml(step.name || step.subGoal || step.decision?.action || 'Recorded step')}</div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-xs run-meta-grid">
+        ${detailLines.map(([label, value]) => `<div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">${escapeHtml(label)}</div><div class="mt-1 text-foreground">${escapeHtml(String(value))}</div></div>`).join('')}
+      </div>
+      <div class="rounded-md border border-input bg-background px-3 py-2 text-xs text-muted-foreground">
+        <div class="text-[10px] uppercase mb-1">Evaluation</div>
+        <div>${escapeHtml(step.evaluation?.summary || 'No summary')}</div>
+      </div>
+      <div class="grid grid-cols-2 gap-3 run-image-grid">
+        <div class="space-y-2">
+          <div class="text-[10px] uppercase text-muted-foreground">Before</div>
+          ${beforeImage ? `<img src="${beforeImage}" alt="Before step ${step.step}" class="w-full rounded-lg border border-input bg-black/20 object-contain max-h-[360px]">` : '<div class="rounded-lg border border-input bg-background p-4 text-xs text-muted-foreground">No before image</div>'}
+        </div>
+        <div class="space-y-2">
+          <div class="text-[10px] uppercase text-muted-foreground">After</div>
+          ${afterImage ? `<img src="${afterImage}" alt="After step ${step.step}" class="w-full rounded-lg border border-input bg-black/20 object-contain max-h-[360px]">` : '<div class="rounded-lg border border-input bg-background p-4 text-xs text-muted-foreground">No after image</div>'}
+        </div>
+      </div>
+      <div class="rounded-md border border-input bg-background px-3 py-2 text-xs text-muted-foreground">
+        <div class="text-[10px] uppercase mb-1">Decision</div>
+        <pre class="whitespace-pre-wrap text-[11px]">${escapeHtml(JSON.stringify(step.decision || {}, null, 2))}</pre>
+      </div>
+    </div>
+  `;
+}
+
+function renderRunDetail(run) {
+  currentRunDetail = run;
+  runDetailSummary.textContent = `${run.goal} • ${run.status} • ${run.stepCount || (run.steps || []).length} steps`;
+  const steps = run.steps || [];
+  runStepList.innerHTML = '';
+
+  if (steps.length === 0) {
+    runStepList.innerHTML = '<div class="text-sm text-muted-foreground">No steps recorded.</div>';
+    runStepDetail.innerHTML = '<div class="text-sm text-muted-foreground">No step selected.</div>';
+    return;
+  }
+
+  steps.forEach((step, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'w-full text-left rounded-lg border border-input bg-background px-3 py-2 hover:bg-accent transition-colors';
+    button.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-semibold">Step ${step.step}</span>
+        <span class="ml-auto text-[10px] ${step.evaluation?.verdict === 'pass' ? 'text-emerald-400' : step.evaluation?.verdict === 'fail' ? 'text-red-400' : 'text-yellow-400'}">${escapeHtml(step.evaluation?.verdict || 'unknown')}</span>
+      </div>
+      <div class="mt-1 text-xs text-foreground">${escapeHtml(step.subGoal || step.decision?.action || 'Recorded step')}</div>
+      <div class="mt-1 text-[10px] text-muted-foreground line-clamp-2">${escapeHtml((deriveTargetHint(step)?.text || deriveTargetHint(step)?.id || step.evaluation?.summary || 'No target hint'))}</div>
+    `;
+    button.addEventListener('click', () => {
+      runStepList.querySelectorAll('button').forEach((item) => item.classList.remove('ring-1', 'ring-blue-400/60'));
+      button.classList.add('ring-1', 'ring-blue-400/60');
+      renderRunStepDetail(run, step);
+    });
+    runStepList.appendChild(button);
+    if (index === 0) {
+      queueMicrotask(() => button.click());
+    }
+  });
+}
+
+function formatReplayLabel(replay) {
+  const stamp = replay.savedAt || replay.startedAt;
+  return `${stamp ? new Date(stamp).toLocaleString() : 'unknown time'} • ${replay.scriptName} [${replay.status}]`;
+}
+
+async function refreshReplayList() {
+  try {
+    const replays = await fetch('/api/test/replays').then((res) => res.json());
+    replaySelect.innerHTML = '';
+    if (!Array.isArray(replays) || replays.length === 0) {
+      replaySelect.innerHTML = '<option value="">No replay results yet</option>';
+    } else {
+      replaySelect.appendChild(new Option('Select replay result...', ''));
+      replays.forEach((replay) => replaySelect.appendChild(new Option(formatReplayLabel(replay), replay.replayId)));
+    }
+    updatePlaybackControls();
+  } catch (err) {
+    setPlaybackStatus(`Failed to load replays: ${err.message}`, true);
+  }
+}
+
+function findSourceStep(sourceRun, replayStep) {
+  if (!sourceRun?.steps || !replayStep?.scriptStep?.sourceStep) return null;
+  return sourceRun.steps.find((step) => step.step === replayStep.scriptStep.sourceStep) || null;
+}
+
+function compareState(expectedState, liveState) {
+  const expectedHash = expectedState?.screenshotHash || null;
+  const liveHash = liveState?.screenshotHash || null;
+  const expectedApp = expectedState?.foregroundApp || null;
+  const liveApp = liveState?.foregroundApp || null;
+  const hashMatch = expectedHash && liveHash ? expectedHash === liveHash : null;
+  const appMatch = expectedApp && liveApp ? expectedApp === liveApp : null;
+  const mismatch = hashMatch === false || appMatch === false;
+  const match = hashMatch === true && (appMatch !== false);
+  return {
+    expectedHash,
+    liveHash,
+    expectedApp,
+    liveApp,
+    hashMatch,
+    appMatch,
+    mismatch,
+    match,
+  };
+}
+
+function comparisonBadge(comparison) {
+  if (comparison.match) {
+    return '<span class="replay-badge replay-badge-match">Match</span>';
+  }
+  if (comparison.mismatch) {
+    return '<span class="replay-badge replay-badge-mismatch">Mismatch</span>';
+  }
+  return '<span class="replay-badge replay-badge-unknown">Partial</span>';
+}
+
+function comparisonToneClass(comparison) {
+  if (comparison.match) return 'is-match';
+  if (comparison.mismatch) return 'is-mismatch';
+  return 'is-partial';
+}
+
+function renderImageSlot(label, imageUrl, altText) {
+  return `
+    <div class="space-y-2 replay-image-panel">
+      <div class="text-[10px] uppercase text-muted-foreground">${escapeHtml(label)}</div>
+      ${imageUrl
+        ? `<img src="${imageUrl}" alt="${escapeHtml(altText)}" class="w-full rounded-lg border border-input bg-black/20 object-contain max-h-[320px] replay-compare-image">`
+        : '<div class="rounded-lg border border-input bg-background p-4 text-xs text-muted-foreground">No image available</div>'}
+    </div>
+  `;
+}
+
+function renderComparisonDetails(comparison) {
+  const details = [];
+  if (comparison.hashMatch === true) details.push('Screenshot hash matched');
+  else if (comparison.hashMatch === false) details.push('Screenshot hash changed');
+  else details.push('Screenshot hash unavailable');
+
+  if (comparison.appMatch === true) details.push(`App matched: ${comparison.liveApp}`);
+  else if (comparison.appMatch === false) details.push(`App drift: expected ${comparison.expectedApp || 'unknown'}, live ${comparison.liveApp || 'unknown'}`);
+  else if (comparison.expectedApp || comparison.liveApp) details.push(`App context: ${comparison.expectedApp || comparison.liveApp}`);
+
+  return details.map((item) => `<span class="replay-detail-chip">${escapeHtml(item)}</span>`).join('');
+}
+
+function renderDiffOverlay(label, expectedImage, liveImage) {
+  if (!expectedImage || !liveImage) {
+    return '<div class="rounded-lg border border-dashed border-input bg-background/60 p-4 text-xs text-muted-foreground">Overlay preview unavailable without both images.</div>';
+  }
+
+  return `
+    <div class="space-y-2">
+      <div class="text-[10px] uppercase text-muted-foreground">${escapeHtml(label)} Overlay Diff</div>
+      <div class="replay-diff-stack rounded-lg border border-input overflow-hidden bg-black/30">
+        <img src="${expectedImage}" alt="Expected ${escapeHtml(label)}" class="replay-diff-base">
+        <img src="${liveImage}" alt="Live ${escapeHtml(label)}" class="replay-diff-overlay">
+      </div>
+      <div class="text-[11px] text-muted-foreground">Difference blend highlights regions where live replay diverged from the recorded reference.</div>
+    </div>
+  `;
+}
+
+function renderComparisonCard(label, expectedImage, liveImage, comparison) {
+  return `
+    <div class="replay-compare-card ${comparisonToneClass(comparison)}">
+      <div class="flex items-center gap-2 replay-compare-header">
+        <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">${escapeHtml(label)}</div>
+        ${comparisonBadge(comparison)}
+      </div>
+      <div class="flex flex-wrap gap-2 mt-2">${renderComparisonDetails(comparison)}</div>
+      <div class="grid grid-cols-2 gap-3 run-image-grid mt-3 replay-compare-grid">
+        ${renderImageSlot(`Expected ${label}`, expectedImage, `Expected ${label}`)}
+        ${renderImageSlot(`Live ${label}`, liveImage, `Live ${label}`)}
+      </div>
+      <div class="mt-3">
+        ${renderDiffOverlay(label, expectedImage, liveImage)}
+      </div>
+    </div>
+  `;
+}
+
+function renderReplayStepDetail(replay, replayStep, sourceRun) {
+  const sourceStep = findSourceStep(sourceRun, replayStep);
+  const expectedBeforeImage = sourceStep?.before?.image ? artifactUrl(`runs/${sourceRun.runId}/${sourceStep.before.image}`) : '';
+  const expectedAfterImage = sourceStep?.after?.image ? artifactUrl(`runs/${sourceRun.runId}/${sourceStep.after.image}`) : '';
+  const liveBeforeImage = replayStep.before?.image ? artifactUrl(`replays/${replay.replayId}/${replayStep.before.image}`) : '';
+  const liveAfterImage = replayStep.after?.image ? artifactUrl(`replays/${replay.replayId}/${replayStep.after.image}`) : '';
+  const beforeComparison = compareState(sourceStep?.before, replayStep.before);
+  const afterComparison = compareState(sourceStep?.after, replayStep.after);
+  const relocation = replayStep.relocation?.relocated
+    ? (replayStep.relocation.match?.text || replayStep.relocation.match?.id || replayStep.relocation.match?.type || 'matched target')
+    : '--';
+
+  replayStepDetail.innerHTML = `
+    <div class="space-y-3">
+      <div>
+        <div class="text-sm font-semibold">Replay Step ${replayStep.step}</div>
+        <div class="text-xs text-muted-foreground">${escapeHtml(replayStep.name || replayStep.scriptStep?.name || 'Replay step')}</div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-xs run-meta-grid">
+        <div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">Verdict</div><div class="mt-1 text-foreground">${escapeHtml(replayStep.evaluation?.verdict || '--')}</div></div>
+        <div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">Failure Type</div><div class="mt-1 text-foreground">${escapeHtml(replayStep.evaluation?.failureType || '--')}</div></div>
+        <div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">Action</div><div class="mt-1 text-foreground">${escapeHtml(replayStep.scriptStep?.action?.action || '--')}</div></div>
+        <div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">Relocation</div><div class="mt-1 text-foreground">${escapeHtml(relocation)}</div></div>
+        <div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">Before Check</div><div class="mt-1 text-foreground">${beforeComparison.match ? 'match' : beforeComparison.mismatch ? 'mismatch' : 'partial'}</div></div>
+        <div class="rounded-md border border-input bg-background px-3 py-2"><div class="text-[10px] uppercase text-muted-foreground">After Check</div><div class="mt-1 text-foreground">${afterComparison.match ? 'match' : afterComparison.mismatch ? 'mismatch' : 'partial'}</div></div>
+      </div>
+      <div class="rounded-md border border-input bg-background px-3 py-2 text-xs text-muted-foreground">
+        <div class="text-[10px] uppercase mb-1">Evaluation</div>
+        <div>${escapeHtml(replayStep.evaluation?.summary || 'No summary')}</div>
+      </div>
+      <div class="space-y-4">
+        ${renderComparisonCard('Before', expectedBeforeImage, liveBeforeImage, beforeComparison)}
+        ${renderComparisonCard('After', expectedAfterImage, liveAfterImage, afterComparison)}
+      </div>
+      <div class="rounded-md border border-input bg-background px-3 py-2 text-xs text-muted-foreground">
+        <div class="text-[10px] uppercase mb-1">Checks</div>
+        <pre class="whitespace-pre-wrap text-[11px]">${escapeHtml(JSON.stringify(replayStep.evaluation?.checks || [], null, 2))}</pre>
+      </div>
+    </div>
+  `;
+}
+
+function renderReplayDetail(replay, sourceRun) {
+  currentReplayDetail = replay;
+  replayDetailSummary.textContent = `${replay.scriptName} • ${replay.status} • ${replay.steps?.length || 0} steps`;
+  replayStepList.innerHTML = '';
+
+  const steps = replay.steps || [];
+  if (steps.length === 0) {
+    replayStepList.innerHTML = '<div class="text-sm text-muted-foreground">No replay steps recorded.</div>';
+    replayStepDetail.innerHTML = '<div class="text-sm text-muted-foreground">No step selected.</div>';
+    return;
+  }
+
+  steps.forEach((step, index) => {
+    const sourceStep = findSourceStep(sourceRun, step);
+    const beforeComparison = compareState(sourceStep?.before, step.before);
+    const afterComparison = compareState(sourceStep?.after, step.after);
+    const hasMismatch = beforeComparison.mismatch || afterComparison.mismatch;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `w-full text-left rounded-lg border bg-background px-3 py-2 hover:bg-accent transition-colors ${hasMismatch ? 'border-red-500/40' : 'border-input'}`;
+    button.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-semibold">Step ${step.step}</span>
+        <span class="ml-auto text-[10px] ${step.evaluation?.verdict === 'pass' ? 'text-emerald-400' : 'text-red-400'}">${escapeHtml(step.evaluation?.verdict || 'unknown')}</span>
+      </div>
+      <div class="mt-1 text-xs text-foreground">${escapeHtml(step.name || step.scriptStep?.name || 'Replay step')}</div>
+      <div class="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+        ${hasMismatch ? '<span class="replay-badge replay-badge-mismatch">Screen drift</span>' : '<span class="replay-badge replay-badge-match">Aligned</span>'}
+        <span class="line-clamp-2">${escapeHtml(step.evaluation?.summary || 'No summary')}</span>
+      </div>
+    `;
+    button.addEventListener('click', () => {
+      replayStepList.querySelectorAll('button').forEach((item) => item.classList.remove('ring-1', 'ring-emerald-400/60'));
+      button.classList.add('ring-1', 'ring-emerald-400/60');
+      renderReplayStepDetail(replay, step, sourceRun);
+    });
+    replayStepList.appendChild(button);
+    if (index === 0) queueMicrotask(() => button.click());
+  });
+}
+
+async function openReplayDetail() {
+  if (!replaySelect.value) return;
+  try {
+    const replay = await fetch(`/api/test/replays/${encodeURIComponent(replaySelect.value)}`).then((res) => res.json());
+    if (replay.error) throw new Error(replay.error);
+    let sourceRun = null;
+    if (replay.sourceRunId) {
+      const run = await fetch(`/api/test/runs/${encodeURIComponent(replay.sourceRunId)}?includeSteps=1`).then((res) => res.json());
+      if (!run.error) sourceRun = run;
+    }
+    renderReplayDetail(replay, sourceRun);
+    replayDetailDialog.classList.remove('hidden');
+    lucide.createIcons();
+  } catch (err) {
+    setPlaybackStatus(`Failed to load replay detail: ${err.message}`, true);
+  }
+}
+
+function closeReplayDetail() {
+  replayDetailDialog.classList.add('hidden');
+}
+
+async function openRunDetail() {
+  if (!runSelect.value) return;
+  try {
+    const run = await fetch(`/api/test/runs/${encodeURIComponent(runSelect.value)}?includeSteps=1`).then((res) => res.json());
+    if (run.error) throw new Error(run.error);
+    renderRunDetail(run);
+    runDetailDialog.classList.remove('hidden');
+    lucide.createIcons();
+  } catch (err) {
+    setPlaybackStatus(`Failed to load run detail: ${err.message}`, true);
+  }
+}
+
+function closeRunDetail() {
+  runDetailDialog.classList.add('hidden');
+}
+
+function getReplayPolicy() {
+  return {
+    mode: replayMode.value || 'strict',
+    maxRetriesPerStep: Number.parseInt(replayRetries.value, 10) || 0,
+    maxHardFailures: Number.parseInt(replayHardFailures.value, 10) || 1,
+    maxSoftFailures: Number.parseInt(replaySoftFailures.value, 10) || 0,
+    semanticFallback: replaySemanticFallback.checked,
+  };
+}
+
+function formatRunLabel(run) {
+  const stamp = run.startedAt ? new Date(run.startedAt).toLocaleString() : 'unknown time';
+  return `${stamp} • ${run.goal} [${run.status}]`;
+}
+
+function formatScriptLabel(script) {
+  return `${script.name} (${script.stepCount || (script.steps || []).length} steps)`;
+}
+
+async function refreshRunList() {
+  try {
+    const runs = await fetch('/api/test/runs').then((res) => res.json());
+    runSelect.innerHTML = '';
+    if (!Array.isArray(runs) || runs.length === 0) {
+      runSelect.innerHTML = '<option value="">No recorded runs yet</option>';
+    } else {
+      runSelect.appendChild(new Option('Select recorded run...', ''));
+      runs.forEach((run) => runSelect.appendChild(new Option(formatRunLabel(run), run.runId)));
+    }
+    updatePlaybackControls();
+  } catch (err) {
+    setPlaybackStatus(`Failed to load runs: ${err.message}`, true);
+  }
+}
+
+async function refreshScriptList() {
+  try {
+    const scripts = await fetch('/api/test/scripts').then((res) => res.json());
+    scriptSelect.innerHTML = '';
+    if (!Array.isArray(scripts) || scripts.length === 0) {
+      scriptSelect.innerHTML = '<option value="">No saved scripts yet</option>';
+    } else {
+      scriptSelect.appendChild(new Option('Select saved script...', ''));
+      scripts.forEach((script) => scriptSelect.appendChild(new Option(formatScriptLabel(script), script.scriptId)));
+    }
+    updatePlaybackControls();
+  } catch (err) {
+    setPlaybackStatus(`Failed to load scripts: ${err.message}`, true);
+  }
+}
+
+async function saveSelectedRunAsScript() {
+  if (!runSelect.value) return;
+  try {
+    const response = await fetch('/api/test/scripts/from-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: runSelect.value, name: scriptNameInput.value.trim() || undefined }),
+    });
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error || 'Failed to save script');
+    setPlaybackStatus(`Saved script: ${result.script.name}`);
+    scriptNameInput.value = '';
+    await refreshScriptList();
+    scriptSelect.value = result.script.scriptId;
+    updatePlaybackControls();
+  } catch (err) {
+    setPlaybackStatus(`Failed to save script: ${err.message}`, true);
+  }
+}
+
+function replaySelectedScript() {
+  if (!scriptSelect.value || !selectedDevice) return;
+  ws.send({ type: 'replay-script', scriptId: scriptSelect.value, device: selectedDevice, policy: getReplayPolicy() });
 }
 
 function startRecording() {
@@ -758,6 +1365,26 @@ btnChatHelp.addEventListener('click', () => {
 btnRecordStart.addEventListener('click', startRecording);
 btnRecordStop.addEventListener('click', () => stopRecording('Finalizing recording...'));
 btnRecordDownload.addEventListener('click', downloadRecording);
+btnRunsRefresh.addEventListener('click', refreshRunList);
+btnViewRun.addEventListener('click', openRunDetail);
+btnScriptsRefresh.addEventListener('click', refreshScriptList);
+btnReplaysRefresh.addEventListener('click', refreshReplayList);
+btnViewReplay.addEventListener('click', openReplayDetail);
+btnSaveScript.addEventListener('click', saveSelectedRunAsScript);
+btnReplayScript.addEventListener('click', replaySelectedScript);
+btnReplayStop.addEventListener('click', () => ws.send({ type: 'replay-stop' }));
+runSelect.addEventListener('change', updatePlaybackControls);
+scriptSelect.addEventListener('change', updatePlaybackControls);
+replaySelect.addEventListener('change', updatePlaybackControls);
+replayMode.addEventListener('change', updatePlaybackControls);
+replayRetries.addEventListener('input', updatePlaybackControls);
+replayHardFailures.addEventListener('input', updatePlaybackControls);
+replaySoftFailures.addEventListener('input', updatePlaybackControls);
+replaySemanticFallback.addEventListener('change', updatePlaybackControls);
+btnCloseRunDetail.addEventListener('click', closeRunDetail);
+runDetailOverlay.addEventListener('click', closeRunDetail);
+btnCloseReplayDetail.addEventListener('click', closeReplayDetail);
+replayDetailOverlay.addEventListener('click', closeReplayDetail);
 
 btnChatClear.addEventListener('click', () => {
   chatMessages.innerHTML = '';
@@ -911,4 +1538,8 @@ function escapeHtml(text) {
 // --- Start ---
 updateSendButton();
 updateRecordingControls();
+updatePlaybackControls();
+refreshRunList();
+refreshScriptList();
+refreshReplayList();
 ws.connect();

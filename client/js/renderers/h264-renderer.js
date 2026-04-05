@@ -9,7 +9,7 @@
 export class H264Renderer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     this._decoder = null;
     this._configured = false;
     this._configData = null;       // Raw SPS+PPS bytes (Annex B)
@@ -19,11 +19,39 @@ export class H264Renderer {
     this.clientFps = 0;
     this._supported = typeof VideoDecoder !== 'undefined';
     this._pts = 0;
+    this._pendingFrame = null;
+    this._drainScheduled = false;
+    this._latestDecodedFrame = null;
+    this._paintScheduled = false;
+    if (this.ctx) {
+      this.ctx.imageSmoothingEnabled = false;
+    }
   }
 
   get supported() { return this._supported; }
 
   async renderFrame(arrayBuffer) {
+    this._pendingFrame = arrayBuffer;
+    if (this._drainScheduled) return;
+    this._drainScheduled = true;
+
+    queueMicrotask(async () => {
+      try {
+        const latest = this._pendingFrame;
+        this._pendingFrame = null;
+        if (latest) {
+          await this._decodeFrame(latest);
+        }
+      } finally {
+        this._drainScheduled = false;
+        if (this._pendingFrame) {
+          this.renderFrame(this._pendingFrame);
+        }
+      }
+    });
+  }
+
+  async _decodeFrame(arrayBuffer) {
     if (!this._supported) return;
 
     const view = new DataView(arrayBuffer);
@@ -53,13 +81,13 @@ export class H264Renderer {
 
     this._pts += 1000;
 
-    // Drop delta frames if decoder queue is too deep (reduces lag)
-    if (this._decoder && this._decoder.decodeQueueSize > 3 && !reallyKeyframe) {
+    // Keep latency low by preferring freshness over perfect frame retention.
+    if (this._decoder && this._decoder.decodeQueueSize > 0 && !reallyKeyframe) {
       return;
     }
 
-    // If queue is very deep, flush and wait for next keyframe
-    if (this._decoder && this._decoder.decodeQueueSize > 8) {
+    // If the queue still builds up, reset quickly instead of letting seconds of lag accumulate.
+    if (this._decoder && this._decoder.decodeQueueSize > 2) {
       this._decoder.reset();
       await this._ensureDecoder();
       this._waitingForKeyframe = true;
@@ -111,12 +139,11 @@ export class H264Renderer {
 
     this._decoder = new VideoDecoder({
       output: (frame) => {
-        if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
-          this.canvas.width = frame.displayWidth;
-          this.canvas.height = frame.displayHeight;
+        if (this._latestDecodedFrame) {
+          this._latestDecodedFrame.close();
         }
-        this.ctx.drawImage(frame, 0, 0);
-        frame.close();
+        this._latestDecodedFrame = frame;
+        this._schedulePaint();
       },
       error: (e) => {
         console.error('[H264] Decoder error:', e.message);
@@ -193,9 +220,36 @@ export class H264Renderer {
   }
 
   destroy() {
+    if (this._latestDecodedFrame) {
+      this._latestDecodedFrame.close();
+      this._latestDecodedFrame = null;
+    }
     if (this._decoder && this._decoder.state !== 'closed') {
       this._decoder.close();
     }
     this._configured = false;
+    this._pendingFrame = null;
+    this._drainScheduled = false;
+    this._paintScheduled = false;
+  }
+
+  _schedulePaint() {
+    if (this._paintScheduled) return;
+    this._paintScheduled = true;
+    requestAnimationFrame(() => {
+      this._paintScheduled = false;
+      const frame = this._latestDecodedFrame;
+      this._latestDecodedFrame = null;
+      if (!frame || !this.ctx) return;
+      if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
+        this.canvas.width = frame.displayWidth;
+        this.canvas.height = frame.displayHeight;
+      }
+      this.ctx.drawImage(frame, 0, 0);
+      frame.close();
+      if (this._latestDecodedFrame) {
+        this._schedulePaint();
+      }
+    });
   }
 }

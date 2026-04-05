@@ -6,8 +6,9 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import { getScreenElements, captureScreenshot, getForegroundApp, extractOcrElements, fuseElementsWithOcr } from './perception.js';
-import { getClient } from '../adb/adb-client.js';
 import { getScreenResolution } from '../adb/device-info.js';
+import { executeDeviceAction } from '../input/action-executor.js';
+import { captureStepState, hashBase64Image } from '../recording/state-utils.js';
 
 const DEFAULT_MAX_STEPS = 20;
 const DEFAULT_STEP_DELAY_MS = 800;
@@ -71,6 +72,8 @@ export class Agent {
     this.running = false;
     this.resolution = null;
     this.inputHandler = options.inputHandler || null; // ScrcpyInputHandler for real touch injection
+    this.runRecorder = options.runRecorder || null;
+    this.recordingContext = options.recordingContext || {};
     this._provider = null;
     this._openai = null;
     this._anthropic = null;
@@ -117,7 +120,7 @@ export class Agent {
     let prevScreenHash = '';
     let stuckCount = 0;
 
-    this.onStep({ type: 'start', goal, maxSteps, provider: this._provider });
+    this.onStep({ type: 'start', goal, maxSteps, provider: this._provider, runId: this.runRecorder?.runId || null });
 
     for (let step = 0; step < maxSteps && this.running; step++) {
       try {
@@ -262,6 +265,20 @@ export class Agent {
 
         console.log(`[Agent] Decision: action=${decision.action} coords=${JSON.stringify(decision.coordinates)} endCoords=${JSON.stringify(decision.endCoordinates)} dir=${decision.direction}`);
 
+        const beforeState = {
+          capturedAt: new Date().toISOString(),
+          foregroundApp: foregroundApp || null,
+          resolution: this.resolution,
+          screenshotBase64: screenshot || null,
+          screenshotHash: hashBase64Image(screenshot),
+          elements: compactElements,
+          totalElements: elements.length,
+          modalDetected: Boolean(meta?.modalDetected),
+          modalMetrics: meta?.modalMetrics || null,
+          elementsStale,
+          ocrCount,
+        };
+
         this.onStep({
           type: 'decided',
           step: step + 1,
@@ -279,8 +296,27 @@ export class Agent {
           return;
         }
 
-        await this._executeAction(decision);
-        this.onStep({ type: 'acted', step: step + 1, action: decision.action });
+        const execution = await executeDeviceAction({
+          serial: this.serial,
+          resolution: this.resolution,
+          inputHandler: this.inputHandler,
+          decision,
+        });
+        this.onStep({ type: 'acted', step: step + 1, action: decision.action, transport: execution.transport, durationMs: execution.durationMs });
+
+        if (this.runRecorder) {
+          const afterState = await captureStepState(this.serial, this.resolution, { fromAction: decision.action });
+          await this.runRecorder.recordStep({
+            step: step + 1,
+            round: this.recordingContext.round || null,
+            subGoal: this.recordingContext.subGoal || null,
+            goal,
+            before: beforeState,
+            decision,
+            execution,
+            after: afterState,
+          });
+        }
 
         await sleep(stepDelayMs);
 
@@ -444,89 +480,6 @@ export class Agent {
     return text;
   }
 
-  async _executeAction(decision) {
-    const device = getClient().getDevice(this.serial);
-    const ih = this.inputHandler; // ScrcpyInputHandler if available
-    const w = this.resolution.width, h = this.resolution.height;
-
-    switch (decision.action) {
-      case 'tap': {
-        const [x, y] = decision.coordinates || [0, 0];
-        console.log(`[Agent] Executing tap: (${x},${y}) via ${ih ? 'scrcpy' : 'adb'}`);
-        if (ih) {
-          ih.tap(x / w, y / h);
-          await sleep(50);
-        } else {
-          await shell(device, `input tap ${x} ${y}`);
-        }
-        break;
-      }
-      case 'type': {
-        if (ih) {
-          ih.text(decision.text || '');
-        } else {
-          const text = (decision.text || '').replace(/ /g, '%s').replace(/(['"\\$`!&|;(){}])/g, '\\$1');
-          await shell(device, `input text "${text}"`);
-        }
-        break;
-      }
-      case 'swipe': {
-        const dir = decision.direction || 'up';
-        const cx = Math.round(w / 2), cy = Math.round(h / 2);
-        const d = Math.round(h * 0.3);
-        const dirMap = {
-          up:    { x1: cx, y1: cy + d, x2: cx, y2: cy - d },
-          down:  { x1: cx, y1: cy - d, x2: cx, y2: cy + d },
-          left:  { x1: cx + d, y1: cy, x2: cx - d, y2: cy },
-          right: { x1: cx - d, y1: cy, x2: cx + d, y2: cy },
-        };
-        const s = dirMap[dir] || dirMap.up;
-        if (ih) {
-          ih.swipe(s.x1 / w, s.y1 / h, s.x2 / w, s.y2 / h, 300);
-          await sleep(350);
-        } else {
-          await shell(device, `input swipe ${s.x1} ${s.y1} ${s.x2} ${s.y2} 300`);
-        }
-        break;
-      }
-      case 'drag': {
-        const [x1, y1] = decision.coordinates || [0, 0];
-        const [x2, y2] = decision.endCoordinates || decision.coordinates || [0, 0];
-        console.log(`[Agent] Executing drag: (${x1},${y1}) -> (${x2},${y2}) via ${ih ? 'scrcpy' : 'adb'}`);
-        if (ih) {
-          ih.swipe(x1 / w, y1 / h, x2 / w, y2 / h, 200);
-          await sleep(250);
-        } else {
-          await shell(device, `input swipe ${x1} ${y1} ${x2} ${y2} 200`);
-        }
-        break;
-      }
-      case 'press': {
-        const keys = { home: 3, back: 4, recent: 187, enter: 66, delete: 67 };
-        const keycode = keys[decision.key] || 3;
-        if (ih) {
-          ih.key(keycode);
-        } else {
-          await shell(device, `input keyevent ${keycode}`);
-        }
-        break;
-      }
-      case 'launch': {
-        const pkg = decision.package || '';
-        await shell(device, `monkey -p ${pkg} -c android.intent.category.LAUNCHER 1`);
-        break;
-      }
-      case 'wait': {
-        await sleep(1500);
-        break;
-      }
-    }
-  }
-}
-
-async function shell(device, cmd) {
-  const stream = await device.shell(cmd);
-  for await (const _ of stream) {}
 }
 
 function hashScreenForStuckDetection(screenshotBase64, compactElements) {

@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import config from './config.js';
 import { listDevices, trackDevices } from './adb/adb-client.js';
 import { createWsHandler } from './ws/ws-handler.js';
+import { createScriptFromRun, getReplay, getRun, getScript, listReplays, listRuns, listScripts } from './recording/artifact-store.js';
 
 // Prevent adbkit/Bluebird uncaught errors from crashing the server
 process.on('uncaughtException', (err) => {
@@ -32,6 +33,7 @@ app.get('/app', (req, res) => {
 
 // Serve static frontend files
 app.use(express.static(join(__dirname, '..', 'client')));
+app.use('/artifacts', express.static(join(__dirname, '..', 'artifacts')));
 
 // API: Save config (API key + model) — stored in memory only, never written to disk
 app.post('/api/config', (req, res) => {
@@ -120,6 +122,66 @@ app.get('/api/devices', async (req, res) => {
     res.json(devices.map(d => ({ serial: d.id, type: d.type })));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/test/runs', async (req, res) => {
+  try {
+    res.json(await listRuns());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/test/runs/:runId', async (req, res) => {
+  try {
+    const includeSteps = req.query.includeSteps === '1';
+    res.json(await getRun(req.params.runId, { includeSteps }));
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.post('/api/test/scripts/from-run', async (req, res) => {
+  try {
+    const { runId, name, stepNumbers } = req.body || {};
+    if (!runId) return res.status(400).json({ success: false, error: 'runId is required' });
+    const script = await createScriptFromRun({ runId, name, stepNumbers });
+    res.json({ success: true, script });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/test/scripts', async (req, res) => {
+  try {
+    res.json(await listScripts());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/test/scripts/:scriptId', async (req, res) => {
+  try {
+    res.json(await getScript(req.params.scriptId));
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+app.get('/api/test/replays', async (req, res) => {
+  try {
+    res.json(await listReplays());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/test/replays/:replayId', async (req, res) => {
+  try {
+    res.json(await getReplay(req.params.replayId));
+  } catch (err) {
+    res.status(404).json({ error: err.message });
   }
 });
 

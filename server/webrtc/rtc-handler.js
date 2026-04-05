@@ -81,11 +81,12 @@ export class RtcSession {
   sendFrame(frameBuffer, meta) {
     if (!this._ready || !this.dataChannel) return;
 
-    // Skip if DataChannel is congested
-    if (this.dataChannel.bufferedAmount > 512 * 1024) {
+    // Keep only near-real-time data in flight.
+    if (this.dataChannel.bufferedAmount > 128 * 1024) {
       if (!meta.isConfig && !meta.isKeyframe) return;
     }
-    if (this.dataChannel.bufferedAmount > 2 * 1024 * 1024) return;
+    if (this.dataChannel.bufferedAmount > 384 * 1024 && !meta.isConfig) return;
+    if (this.dataChannel.bufferedAmount > 768 * 1024) return;
 
     const header = Buffer.alloc(6);
     header[0] = FRAME_PREFIX_H264;

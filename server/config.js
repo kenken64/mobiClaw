@@ -25,8 +25,8 @@ export default {
   targetFps: 10,
   // Scrcpy server settings
   scrcpy: {
-    maxSize: parseInt(process.env.SCRCPY_MAX_SIZE || '800', 10),
-    bitRate: parseInt(process.env.SCRCPY_BITRATE || '2000000', 10),
+    maxSize: parseInt(process.env.SCRCPY_MAX_SIZE || '960', 10),
+    bitRate: parseInt(process.env.SCRCPY_BITRATE || '2800000', 10),
     maxFps: parseInt(process.env.SCRCPY_MAX_FPS || '30', 10),
   },
 };

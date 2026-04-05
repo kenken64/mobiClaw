@@ -14,6 +14,11 @@ import { CommandHandler } from '../chat/command-handler.js';
 import { Agent } from '../chat/agent.js';
 import { ManagerAgent } from '../chat/manager-agent.js';
 import { BenchmarkRunner } from '../chat/benchmark-runner.js';
+import { RunRecorder } from '../recording/run-recorder.js';
+import { getScript } from '../recording/artifact-store.js';
+import { ScriptRunner } from '../playback/script-runner.js';
+import { acquireMirrorWakeLock, releaseMirrorWakeLock } from '../adb/power-manager.js';
+import { clearVisionFrame, startVisionFrameFeed, stopVisionFrameFeed, updateVisionFrame } from '../stream/vision-frame-cache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCRCPY_SERVER_PATH = join(__dirname, '..', '..', 'scrcpy', 'scrcpy-server.jar');
@@ -40,6 +45,10 @@ export function createWsHandler(server) {
     let commandHandler = null;
     let activeAgent = null;
     let activeBenchmark = null;
+    let activeReplay = null;
+    let activeRecorder = null;
+    let activeRunOutcome = null;
+    let currentSerial = null;
 
     ws.on('message', async (data) => {
       try {
@@ -65,9 +74,14 @@ export function createWsHandler(server) {
     });
 
     function cleanup() {
+      const serialToRelease = currentSerial;
       if (fpsInterval) {
         clearInterval(fpsInterval);
         fpsInterval = null;
+      }
+      if (activeAgent) {
+        activeAgent.stop();
+        activeAgent = null;
       }
       if (streamProvider) {
         streamProvider.stop();
@@ -77,12 +91,34 @@ export function createWsHandler(server) {
         activeBenchmark.stop();
         activeBenchmark = null;
       }
+      if (activeReplay) {
+        activeReplay.stop();
+        activeReplay = null;
+      }
+      if (activeRecorder) {
+        const recorder = activeRecorder;
+        const outcome = activeRunOutcome || { status: 'stopped', summary: 'Client disconnected' };
+        activeRecorder = null;
+        activeRunOutcome = null;
+        recorder.finish(outcome.status, outcome.summary).catch((err) => {
+          console.error('[Recorder] Failed to finalize on cleanup:', err.message);
+        });
+      }
       if (rtcSession) {
         rtcSession.close();
         rtcSession = null;
       }
       inputHandler = null;
       currentMode = null;
+      currentSerial = null;
+      if (serialToRelease) {
+        stopVisionFrameFeed(serialToRelease);
+      }
+      if (serialToRelease) {
+        releaseMirrorWakeLock(serialToRelease).catch((err) => {
+          console.error('[Power] Failed to release wake lock:', err.message);
+        });
+      }
     }
 
     async function handleMessage(ws, msg) {
@@ -106,7 +142,7 @@ export function createWsHandler(server) {
           sendJson(ws, {
             type: 'capabilities',
             scrcpy: scrcpyAvailable,
-            modes: scrcpyAvailable ? ['screenrecord', 'scrcpy', 'screencap', 'webrtc'] : ['screenrecord', 'screencap'],
+            modes: scrcpyAvailable ? ['screenrecord', 'scrcpy', 'screencap', 'webrtc', 'ultra'] : ['screenrecord', 'screencap'],
           });
           break;
         }
@@ -117,14 +153,38 @@ export function createWsHandler(server) {
           const serial = msg.device;
           const mode = msg.mode || 'screenrecord';
           currentMode = mode;
+          currentSerial = serial;
 
           try {
+            await acquireMirrorWakeLock(serial);
+            clearVisionFrame(serial);
+            if (mode !== 'screencap') {
+              startVisionFrameFeed(serial, { intervalMs: mode === 'ultra' ? 350 : 650 });
+            }
             const info = await getDeviceInfo(serial);
 
             if (mode === 'screenrecord') {
               await startScreenrecordStream(ws, serial, info);
+            } else if (mode === 'ultra' && scrcpyAvailable) {
+              await startWebrtcStream(ws, serial, info, {
+                streamMode: 'ultra',
+                scrcpyOptions: {
+                  maxSize: 720,
+                  bitRate: 1800000,
+                  maxFps: 45,
+                  codecOptions: 'profile=1,level=4096,repeat-previous-level-prefix=1,i-frame-interval=1,intra-refresh-period=15',
+                },
+              });
             } else if (mode === 'webrtc' && scrcpyAvailable) {
-              await startWebrtcStream(ws, serial, info);
+              await startWebrtcStream(ws, serial, info, {
+                streamMode: 'webrtc',
+                scrcpyOptions: {
+                  maxSize: 1080,
+                  bitRate: 3800000,
+                  maxFps: 30,
+                  codecOptions: 'profile=1,level=4096,repeat-previous-level-prefix=1,i-frame-interval=1,intra-refresh-period=30',
+                },
+              });
             } else if (mode === 'scrcpy' && scrcpyAvailable) {
               await startScrcpyStream(ws, serial, info);
             } else {
@@ -135,7 +195,7 @@ export function createWsHandler(server) {
             cleanup();
             sendJson(ws, { type: 'error', message: `Failed to start stream: ${err.message}` });
 
-            if (mode === 'scrcpy' || mode === 'webrtc') {
+            if (mode === 'scrcpy' || mode === 'webrtc' || mode === 'ultra') {
               console.log('[WS] Falling back to screencap mode...');
               try {
                 const info = await getDeviceInfo(serial);
@@ -263,28 +323,70 @@ export function createWsHandler(server) {
             activeAgent.stop();
             activeAgent = null;
           }
+          if (activeReplay) {
+            activeReplay.stop();
+            activeReplay = null;
+          }
 
           // /simple prefix uses the flat single-loop agent (old behavior)
           const useSimple = prompt.toLowerCase().startsWith('/simple ');
           const agentGoal = useSimple ? prompt.slice(8).trim() : prompt;
+          const agentMode = useSimple ? 'simple' : 'manager';
+          activeRunOutcome = { status: 'error', summary: 'Run interrupted' };
+
+          activeRecorder = await RunRecorder.create({
+            goal: agentGoal,
+            serial,
+            agentMode,
+            provider: process.env.GEMINI_API_KEY ? 'gemini' : process.env.OPENAI_API_KEY ? 'openai' : process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OLLAMA_MODEL ? 'ollama' : 'unknown',
+          });
+
+          async function finalizeRecorder() {
+            if (!activeRecorder) return;
+            const recorder = activeRecorder;
+            activeRecorder = null;
+            const outcome = activeRunOutcome || { status: 'error', summary: 'Run interrupted' };
+            activeRunOutcome = null;
+            await recorder.finish(outcome.status, outcome.summary);
+            sendJson(ws, { type: 'run-recorded', runId: recorder.runId, status: outcome.status, summary: outcome.summary });
+          }
 
           if (useSimple) {
             activeAgent = new Agent(serial, (stepData) => {
               console.log('[Agent]', stepData.type, stepData.message || stepData.think || stepData.action || '');
+              if (stepData.type === 'done') {
+                activeRunOutcome.status = 'done';
+                activeRunOutcome.summary = stepData.message || 'Goal achieved';
+              } else if (stepData.type === 'maxsteps') {
+                activeRunOutcome.status = 'maxsteps';
+                activeRunOutcome.summary = stepData.message || 'Reached max steps';
+              } else if (stepData.type === 'stopped') {
+                activeRunOutcome.status = 'stopped';
+                activeRunOutcome.summary = stepData.message || 'Stopped by user';
+              }
               const { type: stepType, ...rest } = stepData;
               sendJson(ws, { type: 'agent-step', stepType, ...rest });
-            }, { inputHandler });
+            }, { inputHandler, runRecorder: activeRecorder });
           } else {
             activeAgent = new ManagerAgent(serial, (eventData) => {
               console.log('[Manager]', eventData.type, eventData.message || eventData.subGoal || eventData.analysis || '');
+              if (eventData.type === 'manager-done') {
+                activeRunOutcome.status = 'done';
+                activeRunOutcome.summary = eventData.message || 'Goal achieved';
+              } else if (eventData.type === 'manager-maxrounds') {
+                activeRunOutcome.status = 'maxrounds';
+                activeRunOutcome.summary = eventData.message || 'Reached max planning rounds';
+              }
               const { type: eventType, ...rest } = eventData;
               sendJson(ws, { type: 'manager-event', eventType, ...rest });
-            }, { inputHandler });
+            }, { inputHandler, runRecorder: activeRecorder });
           }
 
           // Run agent in background (don't await - it streams via callback)
           activeAgent.run(agentGoal).catch(err => {
             console.error('[Agent] Fatal error:', err.message, err.stack);
+            activeRunOutcome.status = 'error';
+            activeRunOutcome.summary = err.message;
             if (useSimple) {
               sendJson(ws, { type: 'agent-step', stepType: 'error', message: err.message });
             } else {
@@ -292,6 +394,9 @@ export function createWsHandler(server) {
             }
           }).finally(() => {
             activeAgent = null;
+            finalizeRecorder().catch((err) => {
+              console.error('[Recorder] Failed to finalize:', err.message);
+            });
           });
 
           break;
@@ -300,6 +405,10 @@ export function createWsHandler(server) {
         case 'agent-stop': {
           if (activeAgent) {
             const isManager = activeAgent instanceof ManagerAgent;
+            if (activeRunOutcome) {
+              activeRunOutcome.status = 'stopped';
+              activeRunOutcome.summary = 'Stopped by user';
+            }
             activeAgent.stop();
             activeAgent = null;
             if (isManager) {
@@ -307,6 +416,48 @@ export function createWsHandler(server) {
             } else {
               sendJson(ws, { type: 'agent-step', stepType: 'stopped', message: 'Agent stopped' });
             }
+          }
+          break;
+        }
+
+        case 'replay-script': {
+          const serial = msg.device;
+          if (!serial) {
+            sendJson(ws, { type: 'replay-error', message: 'No device selected for replay' });
+            break;
+          }
+          if (!msg.scriptId) {
+            sendJson(ws, { type: 'replay-error', message: 'No script selected' });
+            break;
+          }
+
+          if (activeReplay) {
+            activeReplay.stop();
+            activeReplay = null;
+          }
+
+          const script = await getScript(msg.scriptId);
+          activeReplay = new ScriptRunner({
+            serial,
+            inputHandler,
+            policy: msg.policy,
+            onEvent: (event) => sendJson(ws, event),
+          });
+
+          activeReplay.run(script).catch((err) => {
+            console.error('[Replay] Fatal error:', err.message);
+            sendJson(ws, { type: 'replay-error', message: err.message });
+          }).finally(() => {
+            activeReplay = null;
+          });
+          break;
+        }
+
+        case 'replay-stop': {
+          if (activeReplay) {
+            activeReplay.stop();
+            activeReplay = null;
+            sendJson(ws, { type: 'replay-error', message: 'Replay stopped by user' });
           }
           break;
         }
@@ -363,8 +514,9 @@ export function createWsHandler(server) {
       streamProvider.onFrame((frameBuffer, meta) => {
         if (ws.readyState !== ws.OPEN) return;
         const bufAmt = ws.bufferedAmount;
-        if (bufAmt > 512 * 1024 && !meta.isConfig && !meta.isKeyframe) return;
-        if (bufAmt > 2 * 1024 * 1024) return;
+        if (bufAmt > 128 * 1024 && !meta.isConfig && !meta.isKeyframe) return;
+        if (bufAmt > 384 * 1024 && !meta.isConfig) return;
+        if (bufAmt > 768 * 1024) return;
 
         const header = Buffer.alloc(6);
         header[0] = FRAME_PREFIX_H264;
@@ -395,7 +547,9 @@ export function createWsHandler(server) {
 
       streamProvider.onFrame((frameBuffer) => {
         if (ws.readyState !== ws.OPEN) return;
-        if (ws.bufferedAmount > 2 * 1024 * 1024) return;
+        if (ws.bufferedAmount > 512 * 1024) return;
+
+        updateVisionFrame(serial, { buffer: frameBuffer, source: 'screencap-stream' });
 
         const prefixed = Buffer.alloc(1 + frameBuffer.length);
         prefixed[0] = FRAME_PREFIX_PNG;
@@ -425,11 +579,11 @@ export function createWsHandler(server) {
         provider.onFrame((frameBuffer, meta) => {
           if (ws.readyState !== ws.OPEN) return;
 
-          // Aggressive backpressure: drop non-keyframes when buffer builds up
-          // This prevents lag from queued frames
+          // Real-time backpressure: prefer freshness over completeness.
           const bufAmt = ws.bufferedAmount;
-          if (bufAmt > 512 * 1024 && !meta.isConfig && !meta.isKeyframe) return;
-          if (bufAmt > 2 * 1024 * 1024) return; // Drop everything if way behind
+          if (bufAmt > 128 * 1024 && !meta.isConfig && !meta.isKeyframe) return;
+          if (bufAmt > 384 * 1024 && !meta.isConfig) return;
+          if (bufAmt > 768 * 1024) return;
 
           const header = Buffer.alloc(6);
           header[0] = FRAME_PREFIX_H264;
@@ -494,11 +648,11 @@ export function createWsHandler(server) {
       watchForDrop();
     }
 
-    async function startWebrtcStream(ws, serial, info) {
+    async function startWebrtcStream(ws, serial, info, { streamMode = 'webrtc', scrcpyOptions = {} } = {}) {
       let reconnecting = false;
 
       async function launchWebrtcScrcpy() {
-        const provider = new ScrcpyProvider(serial);
+        const provider = new ScrcpyProvider(serial, scrcpyOptions);
         streamProvider = provider;
 
         // Create WebRTC session and send offer
@@ -563,7 +717,7 @@ export function createWsHandler(server) {
 
       sendJson(ws, {
         type: 'stream-started',
-        mode: 'webrtc',
+        mode: streamMode,
         width: w,
         height: h,
       });

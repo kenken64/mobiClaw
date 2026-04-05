@@ -88,13 +88,29 @@
           </div>
 
           <!-- Mode Selector -->
-          <div class="grid grid-cols-3 gap-2">
+          <div class="grid grid-cols-2 gap-2">
             <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-2 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
-              <input type="radio" name="mode" value="screenrecord" checked class="sr-only">
+              <input type="radio" name="mode" value="screenrecord" class="sr-only">
               <i data-lucide="tv" class="w-3.5 h-3.5 text-emerald-500"></i>
               <div>
                 <div class="text-xs font-medium">Stable</div>
                 <div class="text-[10px] text-muted-foreground">no disconnect</div>
+              </div>
+            </label>
+            <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-2 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
+              <input type="radio" name="mode" value="webrtc" checked class="sr-only">
+              <i data-lucide="radio-tower" class="w-3.5 h-3.5 text-cyan-400"></i>
+              <div>
+                <div class="text-xs font-medium">Agent</div>
+                <div class="text-[10px] text-muted-foreground">balanced AI</div>
+              </div>
+            </label>
+            <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-2 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
+              <input type="radio" name="mode" value="ultra" class="sr-only">
+              <i data-lucide="rocket" class="w-3.5 h-3.5 text-fuchsia-400"></i>
+              <div>
+                <div class="text-xs font-medium">Ultra</div>
+                <div class="text-[10px] text-muted-foreground">realtime</div>
               </div>
             </label>
             <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-2 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
@@ -105,15 +121,8 @@
                 <div class="text-[10px] text-muted-foreground">scrcpy (5s drop)</div>
               </div>
             </label>
-            <label class="mode-option relative flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 cursor-pointer hover:bg-accent/50 transition-colors has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/5">
-              <input type="radio" name="mode" value="screencap" class="sr-only">
-              <i data-lucide="image" class="w-3.5 h-3.5 text-blue-400"></i>
-              <div>
-                <div class="text-xs font-medium">PNG</div>
-                <div class="text-[10px] text-muted-foreground">screencap</div>
-              </div>
-            </label>
           </div>
+          <input type="radio" name="mode" value="screencap" class="sr-only hidden" aria-hidden="true">
 
           <button id="btn-connect" class="w-full h-9 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" disabled>
             Start Mirror
@@ -238,16 +247,108 @@
           <div id="recording-status" class="text-[11px] text-muted-foreground min-h-[16px]">Start mirroring to enable recording.</div>
         </div>
 
+        <div class="rounded-lg border border-border bg-card p-3 space-y-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="history" class="w-3.5 h-3.5 text-muted-foreground"></i>
+            <h2 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Playback Lab</h2>
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] uppercase tracking-wider text-muted-foreground">Recorded Runs</span>
+              <button id="btn-runs-refresh" class="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-md border border-input bg-background hover:bg-accent transition-colors" title="Refresh runs">
+                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+              </button>
+            </div>
+            <select id="run-select" class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+              <option value="">No recorded runs yet</option>
+            </select>
+            <input id="script-name" type="text" placeholder="Script name (optional)" class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground">
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btn-view-run" class="h-8 rounded-md border border-input bg-background text-xs font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+                View Run
+              </button>
+              <button id="btn-save-script" class="h-8 rounded-md border border-input bg-background text-xs font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+                Save As Script
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] uppercase tracking-wider text-muted-foreground">Saved Scripts</span>
+              <button id="btn-scripts-refresh" class="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-md border border-input bg-background hover:bg-accent transition-colors" title="Refresh scripts">
+                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+              </button>
+            </div>
+            <select id="script-select" class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+              <option value="">No saved scripts yet</option>
+            </select>
+            <div class="grid grid-cols-2 gap-2">
+              <select id="replay-mode" class="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+                <option value="strict">Strict</option>
+                <option value="tolerant">Tolerant</option>
+                <option value="continue">Continue</option>
+              </select>
+              <input id="replay-retries" type="number" min="0" max="5" value="1" class="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground" placeholder="Retries">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <input id="replay-hard-failures" type="number" min="1" max="10" value="1" class="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground" placeholder="Hard fails">
+              <input id="replay-soft-failures" type="number" min="0" max="10" value="0" class="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground" placeholder="Soft fails">
+            </div>
+            <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <input id="replay-semantic-fallback" type="checkbox" checked class="rounded border-input bg-background">
+              Use semantic fallback before raw coordinates
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btn-replay-script" class="h-8 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" disabled>
+                Replay
+              </button>
+              <button id="btn-replay-stop" class="h-8 rounded-md border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors" disabled>
+                Stop Replay
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] uppercase tracking-wider text-muted-foreground">Replay Results</span>
+              <button id="btn-replays-refresh" class="ml-auto inline-flex items-center justify-center h-7 w-7 rounded-md border border-input bg-background hover:bg-accent transition-colors" title="Refresh replays">
+                <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+              </button>
+            </div>
+            <select id="replay-select" class="w-full h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground">
+              <option value="">No replay results yet</option>
+            </select>
+            <button id="btn-view-replay" class="w-full h-8 rounded-md border border-input bg-background text-xs font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled>
+              View Replay Result
+            </button>
+          </div>
+
+          <div id="playback-status" class="text-[11px] text-muted-foreground min-h-[16px]">Runs are recorded automatically during AI execution.</div>
+        </div>
+
       </div>
 
     </aside>
 
     <!-- Main Screen Area -->
-    <main class="flex-1 flex items-center justify-center bg-black/50 relative">
-      <div id="canvas-wrapper" class="relative flex items-center justify-center max-h-full max-w-full">
-        <canvas id="screen-canvas" class="screen-canvas max-h-[calc(100vh-40px)] max-w-full rounded-xl shadow-2xl shadow-black/50 cursor-crosshair hidden"></canvas>
-        <video id="screen-video" class="max-h-[calc(100vh-40px)] max-w-full rounded-xl shadow-2xl shadow-black/50 cursor-crosshair hidden" autoplay playsinline muted></video>
-        <div id="canvas-placeholder" class="flex flex-col items-center gap-6 text-muted-foreground max-w-md">
+    <main class="flex-1 flex items-center justify-center bg-black/50 relative overflow-hidden">
+      <div class="absolute inset-0 pointer-events-none mobile-stage-glow"></div>
+      <div id="canvas-wrapper" class="relative flex items-center justify-center max-h-full max-w-full w-full h-full p-4">
+        <div class="device-shell">
+          <div class="device-shell-side-button device-shell-side-button-top"></div>
+          <div class="device-shell-side-button device-shell-side-button-mid"></div>
+          <div class="device-shell-side-button device-shell-side-button-low"></div>
+          <div class="device-shell-inner">
+            <div class="device-shell-island" aria-hidden="true">
+              <span class="device-shell-speaker"></span>
+              <span class="device-shell-camera"></span>
+            </div>
+            <div class="device-shell-screen">
+              <canvas id="screen-canvas" class="screen-canvas device-screen-surface cursor-crosshair hidden"></canvas>
+              <video id="screen-video" class="device-screen-surface cursor-crosshair hidden" autoplay playsinline muted></video>
+              <div id="canvas-placeholder" class="flex flex-col items-center gap-6 text-muted-foreground max-w-md px-6">
           <div class="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center">
             <i data-lucide="monitor-smartphone" class="w-8 h-8 text-muted-foreground/50"></i>
           </div>
@@ -286,6 +387,9 @@
             </div>
           </div>
           <p class="text-[10px] text-muted-foreground/50 text-center">Or use Wireless ADB on the left panel to connect without USB</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -357,6 +461,54 @@
           <span id="dialog-resolution" class="font-medium">--</span>
           <span class="text-muted-foreground">Battery</span>
           <span id="dialog-battery" class="font-medium">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="run-detail-dialog" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="run-detail-overlay"></div>
+    <div class="absolute inset-x-8 top-8 bottom-8 rounded-xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden run-detail-shell">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-border">
+        <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+          <i data-lucide="history" class="w-4 h-4 text-blue-400"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold">Recorded Run Detail</h3>
+          <p id="run-detail-summary" class="text-[11px] text-muted-foreground">Select a recorded run to inspect its steps.</p>
+        </div>
+        <button id="btn-close-run-detail" class="ml-auto w-7 h-7 rounded-md hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="flex-1 min-h-0 grid grid-cols-[280px_1fr] run-detail-grid">
+        <div class="border-r border-border overflow-y-auto p-3 space-y-2" id="run-step-list"></div>
+        <div class="overflow-y-auto p-4 space-y-4" id="run-step-detail">
+          <div class="text-sm text-muted-foreground">No step selected.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="replay-detail-dialog" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" id="replay-detail-overlay"></div>
+    <div class="absolute inset-x-8 top-8 bottom-8 rounded-xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden run-detail-shell">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-border">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+          <i data-lucide="repeat" class="w-4 h-4 text-emerald-400"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold">Replay Result Detail</h3>
+          <p id="replay-detail-summary" class="text-[11px] text-muted-foreground">Select a replay result to inspect live vs expected state.</p>
+        </div>
+        <button id="btn-close-replay-detail" class="ml-auto w-7 h-7 rounded-md hover:bg-accent flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <div class="flex-1 min-h-0 grid grid-cols-[280px_1fr] run-detail-grid">
+        <div class="border-r border-border overflow-y-auto p-3 space-y-2" id="replay-step-list"></div>
+        <div class="overflow-y-auto p-4 space-y-4" id="replay-step-detail">
+          <div class="text-sm text-muted-foreground">No step selected.</div>
         </div>
       </div>
     </div>

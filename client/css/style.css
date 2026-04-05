@@ -55,6 +55,136 @@ aside .overflow-y-auto::-webkit-scrollbar,
   display: block !important;
 }
 
+.mobile-stage-glow {
+  background:
+    radial-gradient(circle at 50% 45%, hsl(188 90% 62% / 0.1), transparent 24%),
+    radial-gradient(circle at 50% 52%, hsl(142 76% 48% / 0.08), transparent 30%),
+    linear-gradient(180deg, hsl(240 10% 7% / 0.55), transparent 40%, hsl(240 10% 7% / 0.65));
+}
+
+.device-shell {
+  position: relative;
+  width: min(100%, 430px);
+  height: min(calc(100vh - 40px), 860px);
+  padding: 12px;
+  border-radius: 38px;
+  background:
+    linear-gradient(145deg, hsl(220 8% 26%), hsl(220 10% 8%) 38%, hsl(220 7% 18%) 72%, hsl(220 8% 30%));
+  box-shadow:
+    0 28px 70px hsl(0 0% 0% / 0.55),
+    inset 0 0 0 1px hsl(0 0% 100% / 0.06),
+    inset 0 -10px 24px hsl(0 0% 0% / 0.45),
+    inset 0 12px 24px hsl(0 0% 100% / 0.04);
+}
+
+.device-shell::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 32px;
+  border: 1px solid hsl(0 0% 100% / 0.05);
+  pointer-events: none;
+}
+
+.device-shell-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 30px;
+  padding: 44px 14px 14px;
+  background:
+    linear-gradient(180deg, hsl(220 8% 8%), hsl(220 9% 4%));
+  overflow: hidden;
+}
+
+.device-shell-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 24px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 18%, hsl(188 90% 60% / 0.05), transparent 18%),
+    hsl(240 10% 3.9%);
+  box-shadow:
+    inset 0 0 0 1px hsl(0 0% 100% / 0.04),
+    inset 0 18px 32px hsl(0 0% 100% / 0.025);
+}
+
+.device-shell-island {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: 126px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, hsl(220 8% 9%), hsl(220 8% 4%));
+  box-shadow:
+    inset 0 1px 1px hsl(0 0% 100% / 0.04),
+    0 4px 14px hsl(0 0% 0% / 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.device-shell-speaker {
+  width: 46px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, hsl(220 8% 18%), hsl(220 8% 10%));
+  box-shadow: inset 0 1px 1px hsl(0 0% 100% / 0.05);
+}
+
+.device-shell-camera {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 35%, hsl(188 100% 76% / 0.55), transparent 25%),
+    radial-gradient(circle at 50% 50%, hsl(220 55% 18%), hsl(220 55% 8%));
+  box-shadow: 0 0 0 1px hsl(0 0% 100% / 0.05);
+}
+
+.device-shell-side-button {
+  position: absolute;
+  right: -4px;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, hsl(220 8% 30%), hsl(220 8% 14%));
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.04);
+}
+
+.device-shell-side-button-top {
+  top: 140px;
+  height: 56px;
+}
+
+.device-shell-side-button-mid {
+  top: 220px;
+  height: 86px;
+}
+
+.device-shell-side-button-low {
+  left: -4px;
+  right: auto;
+  top: 180px;
+  height: 64px;
+}
+
+.device-screen-surface {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 24px;
+  background: hsl(240 10% 3.9%);
+  box-shadow: 0 22px 44px hsl(0 0% 0% / 0.35);
+}
+
 /* Status dot animations */
 #status-dot.connected {
   background: #4ade80;
@@ -116,6 +246,117 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+.run-detail-shell {
+  min-height: 0;
+}
+
+.run-detail-grid {
+  min-height: 0;
+}
+
+.run-meta-grid,
+.run-image-grid {
+  align-items: start;
+}
+
+.replay-compare-card {
+  border: 1px solid hsl(240 3.7% 15.9%);
+  border-radius: 0.85rem;
+  padding: 0.9rem;
+  background:
+    linear-gradient(180deg, hsl(240 10% 6.5%), hsl(240 10% 4.6%));
+}
+
+.replay-compare-card.is-match {
+  border-color: hsl(142 71% 45% / 0.45);
+  box-shadow: inset 0 0 0 1px hsl(142 71% 45% / 0.08);
+}
+
+.replay-compare-card.is-mismatch {
+  border-color: hsl(0 72% 58% / 0.55);
+  box-shadow: inset 0 0 0 1px hsl(0 72% 58% / 0.12);
+}
+
+.replay-compare-card.is-partial {
+  border-color: hsl(47 96% 53% / 0.42);
+  box-shadow: inset 0 0 0 1px hsl(47 96% 53% / 0.08);
+}
+
+.replay-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 10px;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.replay-badge-match {
+  background: hsl(142 71% 45% / 0.14);
+  border-color: hsl(142 71% 45% / 0.3);
+  color: #86efac;
+}
+
+.replay-badge-mismatch {
+  background: hsl(0 72% 58% / 0.12);
+  border-color: hsl(0 72% 58% / 0.34);
+  color: #fda4af;
+}
+
+.replay-badge-unknown {
+  background: hsl(47 96% 53% / 0.12);
+  border-color: hsl(47 96% 53% / 0.28);
+  color: #fde68a;
+}
+
+.replay-detail-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid hsl(240 3.7% 20%);
+  background: hsl(240 10% 8%);
+  font-size: 11px;
+  color: hsl(240 5% 74%);
+}
+
+.replay-image-panel {
+  min-width: 0;
+}
+
+.replay-compare-image {
+  width: 100%;
+}
+
+.replay-diff-stack {
+  position: relative;
+  aspect-ratio: 9 / 16;
+  display: grid;
+  place-items: stretch;
+  isolation: isolate;
+}
+
+.replay-diff-base,
+.replay-diff-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.replay-diff-base {
+  opacity: 0.9;
+}
+
+.replay-diff-overlay {
+  mix-blend-mode: difference;
+  opacity: 0.7;
+  filter: saturate(1.25) contrast(1.08);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   aside {
@@ -128,5 +369,34 @@ input[type="number"] {
 
   .flex.h-screen {
     flex-direction: column;
+  }
+
+  .run-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .run-image-grid,
+  .run-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .replay-compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .device-shell {
+    width: min(100%, 360px);
+    height: min(calc(100vh - 24px), 720px);
+    border-radius: 32px;
+  }
+
+  .device-shell-inner {
+    border-radius: 26px;
+    padding: 40px 12px 12px;
+  }
+
+  .device-shell-screen,
+  .device-screen-surface {
+    border-radius: 20px;
   }
 }

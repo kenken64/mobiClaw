@@ -54,6 +54,7 @@ export class ManagerAgent {
     this._ollama = null;
     this._activeExecutor = null;
     this._abortController = null;
+    this.runRecorder = options.runRecorder || null;
   }
 
   async init() {
@@ -86,7 +87,7 @@ export class ManagerAgent {
     const executorSteps = this.options.executorSteps || DEFAULT_EXECUTOR_STEPS;
     const history = []; // { subGoal, status, summary }
 
-    this.onEvent({ type: 'manager-start', goal, maxSubGoals, provider: this._provider });
+    this.onEvent({ type: 'manager-start', goal, maxSubGoals, provider: this._provider, runId: this.runRecorder?.runId || null });
 
     for (let round = 0; round < maxSubGoals && this.running; round++) {
       try {
@@ -100,6 +101,15 @@ export class ManagerAgent {
         if (!plan) {
           this.onEvent({ type: 'manager-error', round: round + 1, message: 'Manager returned invalid plan' });
           continue;
+        }
+
+        if (this.runRecorder) {
+          await this.runRecorder.recordManagerPlan({
+            round: round + 1,
+            analysis: plan.analysis,
+            subGoals: plan.sub_goals,
+            isComplete: plan.is_complete,
+          });
         }
 
         this.onEvent({
@@ -140,7 +150,7 @@ export class ManagerAgent {
           remainingSubGoals: subGoals.slice(1),
         });
 
-        const result = await this._executeSubGoal(subGoal, executorSteps);
+        const result = await this._executeSubGoal(subGoal, executorSteps, round + 1);
 
         if (!this.running) break;
 
@@ -270,7 +280,7 @@ A screenshot of the current screen is attached. Analyze the current state and re
   /**
    * Run the Executor (Agent) on a single sub-goal, returning status.
    */
-  async _executeSubGoal(subGoal, maxSteps) {
+  async _executeSubGoal(subGoal, maxSteps, round) {
     return new Promise((resolve) => {
       let lastThink = '';
       let lastAction = '';
@@ -291,7 +301,12 @@ A screenshot of the current screen is attached. Analyze the current state and re
         } else if (stepType === 'stopped') {
           resolve({ status: 'stopped', summary: 'Stopped by user' });
         }
-      }, { maxSteps, inputHandler: this.options.inputHandler });
+      }, {
+        maxSteps,
+        inputHandler: this.options.inputHandler,
+        runRecorder: this.runRecorder,
+        recordingContext: { round, subGoal },
+      });
 
       this._activeExecutor = executor;
 

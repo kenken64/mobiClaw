@@ -4,6 +4,7 @@
  */
 import { getClient } from '../adb/adb-client.js';
 import { GoogleGenAI } from '@google/genai';
+import { captureFreshVisionFrame, getCachedVisionFrame } from '../stream/vision-frame-cache.js';
 
 const DUMP_PATH = '/sdcard/window_dump.xml';
 const OCR_MAX_RESULTS = parseInt(process.env.AGENT_OCR_MAX_RESULTS || '12', 10);
@@ -40,18 +41,18 @@ export async function getScreenElements(serial) {
  * Saves to sdcard first to avoid binary corruption over adb shell.
  */
 export async function captureScreenshot(serial) {
-  const device = getClient().getDevice(serial);
-  const TMP = '/sdcard/.mobiclaw_screen.png';
+  const cached = getCachedVisionFrame(serial, 1500);
+  if (cached) return cached;
+
+  return captureFreshVisionFrame(serial, 'perception-fallback');
+}
+
+/**
+ * Capture screenshot as base64 PNG without consulting the shared cache.
+ */
+export async function captureScreenshotFresh(serial) {
   try {
-    await shell(device, `screencap -p ${TMP}`);
-    const stream = await device.shell(`cat ${TMP}`);
-    const chunks = [];
-    for await (const chunk of stream) {
-      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk, 'binary') : chunk);
-    }
-    const buffer = Buffer.concat(chunks);
-    if (buffer.length < 100 || buffer[0] !== 0x89) return null;
-    return buffer.toString('base64');
+    return await captureFreshVisionFrame(serial, 'perception-fresh');
   } catch {
     return null;
   }

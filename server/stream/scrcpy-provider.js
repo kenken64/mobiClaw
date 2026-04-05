@@ -13,8 +13,9 @@ const SCRCPY_VERSION = '3.3.4';
 const FORWARD_PORT = 27183;
 
 export class ScrcpyProvider {
-  constructor(serial) {
+  constructor(serial, options = {}) {
     this.serial = serial;
+    this.options = options;
     this.running = false;
     this.frameCallback = null;
     this.frameCount = 0;
@@ -42,6 +43,13 @@ export class ScrcpyProvider {
       this.frameCount = 0;
     }, 1000);
 
+    const scrcpyConfig = {
+      maxSize: this.options.maxSize ?? config.scrcpy.maxSize,
+      bitRate: this.options.bitRate ?? config.scrcpy.bitRate,
+      maxFps: this.options.maxFps ?? config.scrcpy.maxFps,
+      codecOptions: this.options.codecOptions ?? 'profile=1,level=4096,repeat-previous-level-prefix=1,i-frame-interval=1,intra-refresh-period=30',
+    };
+
     // Step 1: Kill old scrcpy and set up forward (parallel for speed)
     console.log('[Scrcpy] Cleaning up...');
     await Promise.all([
@@ -64,15 +72,15 @@ export class ScrcpyProvider {
     const args = [
       SCRCPY_VERSION,
       'tunnel_forward=true', 'video=true', 'audio=false', 'control=true',
-      `max_size=${config.scrcpy.maxSize}`,
-      `video_bit_rate=${config.scrcpy.bitRate}`,
-      `max_fps=${config.scrcpy.maxFps}`,
+      `max_size=${scrcpyConfig.maxSize}`,
+      `video_bit_rate=${scrcpyConfig.bitRate}`,
+      `max_fps=${scrcpyConfig.maxFps}`,
       'video_codec=h264', 'send_frame_meta=true',
       'send_device_meta=true', 'send_dummy_byte=true',
       'stay_awake=true',
       'power_off_on_close=false',
-      // Low-latency encoder: baseline profile, short GOP for fast recovery
-      'video_codec_options=profile=1,level=4096,repeat-previous-level-prefix=1,i-frame-interval=2',
+      // Balanced low-latency encoder bias with frequent refresh for smoother motion.
+      `video_codec_options=${scrcpyConfig.codecOptions}`,
     ].join(' ');
 
     console.log('[Scrcpy] Starting server...');

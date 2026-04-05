@@ -60,9 +60,9 @@ export async function connectDevice(host, port = 5555) {
   const output = (stdout + stderr).trim();
   console.log(`[ADB] Connect result: ${output}`);
   if (output.includes('connected') || output.includes('already connected')) {
-    return { success: true, message: output, serial: target };
+    return { success: true, message: output, serial: target, host, port, target };
   }
-  return { success: false, message: output };
+  return { success: false, message: output, host, port, target };
 }
 
 /**
@@ -79,9 +79,9 @@ export async function pairDevice(host, port, code) {
       const output = (stdout + stderr).trim();
       console.log(`[ADB] Pair result: ${output}`);
       if (output.includes('Successfully paired')) {
-        return resolve({ success: true, message: 'Successfully paired! Now connect using the connection port.' });
+        return resolve({ success: true, message: 'Successfully paired! Now connect using the connection port.', host, port, target });
       }
-      resolve({ success: false, message: output || (err ? err.message : 'Pairing failed') });
+      resolve({ success: false, message: output || (err ? err.message : 'Pairing failed'), host, port, target });
     });
   });
 }
@@ -94,5 +94,5 @@ export async function disconnectDevice(serial) {
   const { stdout, stderr } = await execFileAsync(getAdbPath(), ['disconnect', serial]);
   const output = (stdout + stderr).trim();
   console.log(`[ADB] Disconnect result: ${output}`);
-  return { success: true, message: output };
+  return { success: true, message: output, serial };
 }
