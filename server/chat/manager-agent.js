@@ -291,7 +291,7 @@ A screenshot of the current screen is attached. Analyze the current state and re
         } else if (stepType === 'stopped') {
           resolve({ status: 'stopped', summary: 'Stopped by user' });
         }
-      }, { maxSteps });
+      }, { maxSteps, inputHandler: this.options.inputHandler });
 
       this._activeExecutor = executor;
 

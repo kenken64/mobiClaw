@@ -33,13 +33,14 @@ Actions:
 - tap [x,y]: tap at coordinates. Use element "tap" field OR estimate from screenshot
 - type "text": type into the currently focused text field
 - swipe up/down/left/right: swipe the whole screen in that direction (for scrolling)
-- drag [x,y] to [x2,y2]: drag/swipe from coordinates to endCoordinates (for moving items, sliders, game pieces)
+- drag [x,y] to [x2,y2]: drag from coordinates to endCoordinates (for moving items, sliders, game pieces). The start and end should be the CENTER of the source and destination positions.
 - press home/back/recent/enter/delete: press hardware/nav key
 - launch com.package.name: open an app
 - wait: pause and re-read screen
 - done: goal achieved
 
 IMPORTANT: Use "drag" (not tap or swipe) when you need to move something from one position to another (e.g., game pieces, sliders, drag-and-drop). Use "swipe" only for scrolling the screen.
+IMPORTANT: For grid-based games (Candy Crush, puzzle games), drag from the CENTER of one cell to the CENTER of the ADJACENT cell only. Each drag should move exactly one cell up/down/left/right.
 
 Rules:
 - LOOK AT THE SCREENSHOT FIRST. It shows the real screen. The elements list may be stale.
@@ -69,6 +70,7 @@ export class Agent {
     this.options = options;
     this.running = false;
     this.resolution = null;
+    this.inputHandler = options.inputHandler || null; // ScrcpyInputHandler for real touch injection
     this._provider = null;
     this._openai = null;
     this._anthropic = null;
@@ -444,44 +446,69 @@ export class Agent {
 
   async _executeAction(decision) {
     const device = getClient().getDevice(this.serial);
+    const ih = this.inputHandler; // ScrcpyInputHandler if available
+    const w = this.resolution.width, h = this.resolution.height;
 
     switch (decision.action) {
       case 'tap': {
         const [x, y] = decision.coordinates || [0, 0];
-        console.log(`[Agent] Executing tap: (${x},${y})`);
-        await shell(device, `input tap ${x} ${y}`);
+        console.log(`[Agent] Executing tap: (${x},${y}) via ${ih ? 'scrcpy' : 'adb'}`);
+        if (ih) {
+          ih.tap(x / w, y / h);
+          await sleep(50);
+        } else {
+          await shell(device, `input tap ${x} ${y}`);
+        }
         break;
       }
       case 'type': {
-        const text = (decision.text || '').replace(/ /g, '%s').replace(/(['"\\$`!&|;(){}])/g, '\\$1');
-        await shell(device, `input text "${text}"`);
+        if (ih) {
+          ih.text(decision.text || '');
+        } else {
+          const text = (decision.text || '').replace(/ /g, '%s').replace(/(['"\\$`!&|;(){}])/g, '\\$1');
+          await shell(device, `input text "${text}"`);
+        }
         break;
       }
       case 'swipe': {
         const dir = decision.direction || 'up';
-        const w = this.resolution.width, h = this.resolution.height;
         const cx = Math.round(w / 2), cy = Math.round(h / 2);
         const d = Math.round(h * 0.3);
-        const coords = {
-          up: `${cx} ${cy + d} ${cx} ${cy - d}`,
-          down: `${cx} ${cy - d} ${cx} ${cy + d}`,
-          left: `${cx + d} ${cy} ${cx - d} ${cy}`,
-          right: `${cx - d} ${cy} ${cx + d} ${cy}`,
-        }[dir] || `${cx} ${cy + d} ${cx} ${cy - d}`;
-        await shell(device, `input swipe ${coords} 300`);
+        const dirMap = {
+          up:    { x1: cx, y1: cy + d, x2: cx, y2: cy - d },
+          down:  { x1: cx, y1: cy - d, x2: cx, y2: cy + d },
+          left:  { x1: cx + d, y1: cy, x2: cx - d, y2: cy },
+          right: { x1: cx - d, y1: cy, x2: cx + d, y2: cy },
+        };
+        const s = dirMap[dir] || dirMap.up;
+        if (ih) {
+          ih.swipe(s.x1 / w, s.y1 / h, s.x2 / w, s.y2 / h, 300);
+          await sleep(350);
+        } else {
+          await shell(device, `input swipe ${s.x1} ${s.y1} ${s.x2} ${s.y2} 300`);
+        }
         break;
       }
       case 'drag': {
         const [x1, y1] = decision.coordinates || [0, 0];
         const [x2, y2] = decision.endCoordinates || decision.coordinates || [0, 0];
-        console.log(`[Agent] Executing drag: (${x1},${y1}) -> (${x2},${y2})`);
-        await shell(device, `input swipe ${x1} ${y1} ${x2} ${y2} 300`);
+        console.log(`[Agent] Executing drag: (${x1},${y1}) -> (${x2},${y2}) via ${ih ? 'scrcpy' : 'adb'}`);
+        if (ih) {
+          ih.swipe(x1 / w, y1 / h, x2 / w, y2 / h, 200);
+          await sleep(250);
+        } else {
+          await shell(device, `input swipe ${x1} ${y1} ${x2} ${y2} 200`);
+        }
         break;
       }
       case 'press': {
         const keys = { home: 3, back: 4, recent: 187, enter: 66, delete: 67 };
         const keycode = keys[decision.key] || 3;
-        await shell(device, `input keyevent ${keycode}`);
+        if (ih) {
+          ih.key(keycode);
+        } else {
+          await shell(device, `input keyevent ${keycode}`);
+        }
         break;
       }
       case 'launch': {

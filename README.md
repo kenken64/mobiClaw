@@ -49,10 +49,11 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 ## Features
 
 - **Screen Mirroring** - 3 modes: H.264 (scrcpy, up to 60fps), WebRTC (DataChannel), PNG (screencap)
-- **AI Agent** - Natural language phone control with perceive-reason-act loop
+- **AI Agent** - Hierarchical planner/executor by default, with legacy single-loop mode via `/simple`
 - **Multi-LLM** - Google Gemini, OpenAI GPT, Anthropic Claude, Ollama (auto-detects from .env)
 - **Vision** - Screenshots sent to LLM for visual understanding of the screen
 - **Touch Control** - Click-to-tap, drag-to-swipe, scroll wheel from the browser
+- **Native Input Injection** - Agent actions use scrcpy control injection when available, with adb shell fallback
 - **Navigation** - Back, Home, Recent, Volume, Power buttons
 - **Recording & Download** - Record mirrored screen in-browser and download `.webm`
 - **Wireless ADB** - Connect and pair devices from the browser UI
@@ -129,7 +130,22 @@ Type a natural language goal in the chat panel on the right:
 - `open chrome and search for weather today`
 - `what do you see on the mobile screen?`
 
-The agent reads the screen (accessibility tree + screenshot), sends it to the LLM, and executes the returned action. It loops until the goal is achieved or max steps is reached. Press the **Stop** button at any time to cancel immediately — in-flight LLM requests are aborted and no further ADB actions are executed.
+By default, MobiClaw runs a hierarchical agent:
+
+1. A **Manager** plans a short list of sub-goals from the current screenshot and task.
+2. An **Executor** carries out each sub-goal with the perceive -> reason -> act loop.
+3. The Manager re-plans after each sub-goal until the overall goal is complete.
+
+The executor reads the screen (accessibility tree + screenshot), sends it to the LLM, and executes the returned action. When a scrcpy control channel is available, taps, swipes, drags, typing, and key presses are sent through that channel for lower-latency, more reliable input. Otherwise, MobiClaw falls back to adb shell input commands.
+
+Use the `/simple` prefix if you want the older flat single-loop behavior instead of planner mode:
+
+- `/simple open youtube and search for lofi music`
+- `/simple describe the current screen`
+
+Press the **Stop** button at any time to cancel immediately. In-flight LLM requests are aborted and no further actions are executed.
+
+For drag-heavy tasks such as sliders, drag-and-drop, and grid-based puzzle games, the agent now prefers precise drag actions over taps or scroll swipes.
 
 ### Direct Commands
 
@@ -147,7 +163,25 @@ Prefix with `/` for instant commands without AI:
 | `/benchmark baseline` | Run baseline suite only |
 | `/benchmark enhanced` | Run enhanced suite only |
 | `/benchmark stop` | Stop active benchmark |
+| `/simple [goal]` | Use the legacy single-loop agent for one request |
 | `/help` | Show all commands |
+
+### ask-screen Script
+
+For unattended screen polling from the terminal, run:
+
+```bash
+node scripts/ask-screen.js
+```
+
+Optional forms:
+
+```bash
+node scripts/ask-screen.js "What app is open?"
+node scripts/ask-screen.js --device 192.168.0.239:5555 "Describe the screen"
+```
+
+The script connects to the WebSocket server, asks the agent about the current screen, prints streamed agent steps, then waits 30 seconds and repeats until you stop it with `Ctrl+C`.
 
 ## Supported LLM Providers
 
@@ -218,7 +252,8 @@ server/
   ws/                   # WebSocket message routing
   webrtc/               # WebRTC DataChannel transport
   chat/
-    agent.js            # AI agent (perceive -> reason -> act loop)
+    manager-agent.js    # Planner layer (default agent mode)
+    agent.js            # Executor / legacy single-loop agent
     perception.js       # Screen reader (uiautomator + screencap)
     command-handler.js  # Direct /command parser
     benchmark-runner.js # Deterministic benchmark suite

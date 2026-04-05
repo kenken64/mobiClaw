@@ -273,13 +273,13 @@ export function createWsHandler(server) {
               console.log('[Agent]', stepData.type, stepData.message || stepData.think || stepData.action || '');
               const { type: stepType, ...rest } = stepData;
               sendJson(ws, { type: 'agent-step', stepType, ...rest });
-            });
+            }, { inputHandler });
           } else {
             activeAgent = new ManagerAgent(serial, (eventData) => {
               console.log('[Manager]', eventData.type, eventData.message || eventData.subGoal || eventData.analysis || '');
               const { type: eventType, ...rest } = eventData;
               sendJson(ws, { type: 'manager-event', eventType, ...rest });
-            });
+            }, { inputHandler });
           }
 
           // Run agent in background (don't await - it streams via callback)
