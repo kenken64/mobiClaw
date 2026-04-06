@@ -9,7 +9,7 @@
 export class H264Renderer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    this.ctx = canvas.getContext('2d', { alpha: false });
     this.onDimensionsChange = null;
     this._decoder = null;
     this._configured = false;
@@ -85,12 +85,12 @@ export class H264Renderer {
     this._pts += 1000;
 
     // Keep latency low by preferring freshness over perfect frame retention.
-    if (this._decoder && this._decoder.decodeQueueSize > 0 && !reallyKeyframe) {
+    if (this._decoder && this._decoder.decodeQueueSize > 3 && !reallyKeyframe) {
       return;
     }
 
     // If the queue still builds up, reset quickly instead of letting seconds of lag accumulate.
-    if (this._decoder && this._decoder.decodeQueueSize > 2) {
+    if (this._decoder && this._decoder.decodeQueueSize > 5) {
       this._decoder.reset();
       await this._ensureDecoder();
       this._waitingForKeyframe = true;
@@ -156,7 +156,7 @@ export class H264Renderer {
 
     this._decoder.configure({
       codec: codecString,
-      hardwareAcceleration: 'prefer-hardware',
+      hardwareAcceleration: 'prefer-software',
       optimizeForLatency: true,
     });
 
