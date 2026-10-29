@@ -71,7 +71,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v18+
+- [Node.js](https://nodejs.org/) 24 LTS
 - [ADB (Android Platform Tools)](https://developer.android.com/tools/releases/platform-tools)
 - An Android device with USB Debugging enabled
 - An API key for one of: Google Gemini, OpenAI, OpenRouter, Anthropic, or a local Ollama instance (for AI agent)

@@ -4,6 +4,9 @@
   "description": "Web-based Android device screen mirror and control via ADB",
   "type": "module",
   "main": "server/index.js",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "build:webusb": "esbuild client/js/webusb-adb-source.js --bundle --format=esm --target=es2022 --outfile=client/js/webusb-adb-bundle.js",
     "start": "node server/index.js",

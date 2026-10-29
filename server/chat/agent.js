@@ -59,10 +59,10 @@ Rules:
 function getProvider() {
   if (process.env.GEMINI_API_KEY) return 'gemini';
   if (process.env.OPENAI_API_KEY) return 'openai';
+  if (process.env.OPENROUTER_API_KEY) return 'openrouter';
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (process.env.OLLAMA_MODEL) return 'ollama';
   return null;
-  if (process.env.OPENROUTER_API_KEY) return 'openrouter';
 }
 
 export class Agent {
@@ -96,9 +96,9 @@ export class Agent {
       this._openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     } else if (this._provider === 'anthropic') {
       this._anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    } else if (this._provider === 'ollama') {
     } else if (this._provider === 'openrouter') {
       this._openai = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY });
+    } else if (this._provider === 'ollama') {
       const base = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
       this._ollama = new OpenAI({ baseURL: `${base}/v1`, apiKey: 'ollama' });
     }
@@ -375,6 +375,7 @@ export class Agent {
     switch (this._provider) {
       case 'gemini':    return this._callGemini(screenText, screenshotBase64);
       case 'openai':    return this._callOpenAI(screenText, screenshotBase64);
+      case 'openrouter': return this._callOpenAI(screenText, screenshotBase64);
       case 'anthropic': return this._callAnthropic(screenText, screenshotBase64);
       case 'ollama':    return this._callOllama(screenText, screenshotBase64);
     }
@@ -397,7 +398,6 @@ export class Agent {
     // Create chat session (multi-turn)
     if (!this._geminiChat) {
       this._geminiChat = this._gemini.chats.create({
-      case 'openrouter': return this._callOpenAI(screenText, screenshotBase64);
         model,
         config: {
           systemInstruction: SYSTEM_PROMPT,
