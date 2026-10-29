@@ -69,6 +69,23 @@
       <!-- Scrollable Content -->
       <div class="flex-1 overflow-y-auto p-3 space-y-3">
 
+        <div class="flex items-center justify-between gap-2 px-1">
+          <label for="language-switch" class="text-xs text-muted-foreground">Language</label>
+          <select id="language-switch" data-language-switch aria-label="Language" class="rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground">
+            <option value="en">English</option><option value="zh">中文</option>
+          </select>
+        </div>
+
+        <!-- AI provider -->
+        <div class="rounded-lg border border-border bg-card p-3 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-xs font-medium uppercase tracking-wider text-muted-foreground">AI Model</h2>
+            <a href="/" class="text-xs text-purple-400 hover:underline">Configure</a>
+          </div>
+          <p id="ai-provider" class="text-xs font-medium">Loading configuration...</p>
+          <p id="ai-model" class="text-xs text-muted-foreground break-all"></p>
+        </div>
+
         <!-- Device Selection Card -->
         <div class="rounded-lg border border-border bg-card p-3 space-y-3">
           <div class="flex items-center gap-2">
@@ -428,7 +445,7 @@
         </button>
       </div>
       <div id="chat-messages" class="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 text-xs chat-scroll">
-        <div class="text-muted-foreground/60 text-center text-[11px] py-4">
+        <div id="chat-welcome" class="text-muted-foreground/60 text-center text-[11px] py-4">
           Tell the AI what to do on your phone.<br>
           It reads the screen, thinks, and acts.<br><br>
           Try: <span class="text-purple-400 cursor-pointer chat-suggestion">open youtube and search for lofi music</span><br>
@@ -527,6 +544,7 @@
     </div>
   </div>
 
+  <script src="js/i18n.js"></script>
   <script type="module" src="js/app.js"></script>
   <script>document.addEventListener('DOMContentLoaded', () => lucide.createIcons());</script>
 </body>

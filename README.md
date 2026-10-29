@@ -50,7 +50,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 
 - **Screen Mirroring** - 3 modes: H.264 (scrcpy, up to 60fps), WebRTC (DataChannel), PNG (screencap)
 - **AI Agent** - Hierarchical planner/executor by default, with legacy single-loop mode via `/simple`
-- **Multi-LLM** - Google Gemini, OpenAI GPT, Anthropic Claude, Ollama (auto-detects from .env)
+- **Multi-LLM** - Google Gemini, OpenAI GPT, OpenRouter, Anthropic Claude, Ollama (auto-detects from .env)
 - **Vision** - Screenshots sent to LLM for visual understanding of the screen
 - **Touch Control** - Click-to-tap, drag-to-swipe, scroll wheel from the browser
 - **Native Input Injection** - Agent actions use scrcpy control injection when available, with adb shell fallback
@@ -65,6 +65,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 - **Stale Detection** - Discards stale accessibility data, falls back to screenshot-only mode
 - **API Key Storage** - Set API keys from the browser UI (saved to localStorage)
 - **Professional UI** - Tailwind CSS + Lucide icons, shadcn-inspired dark theme
+- **Language Switch** - Choose English or Simplified Chinese on the setup and device-control pages; your choice is saved in the browser
 
 ## Quick Start
 
@@ -73,7 +74,7 @@ The AI agent uses a **perception -> reasoning -> action** loop:
 - [Node.js](https://nodejs.org/) v18+
 - [ADB (Android Platform Tools)](https://developer.android.com/tools/releases/platform-tools)
 - An Android device with USB Debugging enabled
-- An API key for one of: Google Gemini, OpenAI, Anthropic, or a local Ollama instance (for AI agent)
+- An API key for one of: Google Gemini, OpenAI, OpenRouter, Anthropic, or a local Ollama instance (for AI agent)
 
 ### Install
 
@@ -101,9 +102,11 @@ PORT=3000
 # MARKETPLACE_LAUNCH_VERIFY_URL=https://your-2ndbrain-domain/api/marketplace/launch-session/verify
 # MARKETPLACE_LAUNCH_VERIFY_SECRET=use-the-same-secret-configured-in-2ndbrain
 
-# Set ONE of these (priority: Gemini > OpenAI > Anthropic > Ollama):
+# Set ONE of these (priority: Gemini > OpenAI > OpenRouter > Anthropic > Ollama):
 GEMINI_API_KEY=your-key-here
 # OPENAI_API_KEY=sk-...
+# OPENROUTER_API_KEY=sk-or-...
+# OPENROUTER_MODEL=qwen/qwen3-vl-30b-a3b-instruct
 # ANTHROPIC_API_KEY=sk-ant-...
 # OLLAMA_MODEL=qwen2.5vl:72b
 # OLLAMA_MODEL=gemma4:e4b
@@ -218,6 +221,7 @@ The script connects to the WebSocket server, asks the agent about the current sc
 |----------|-------|----------|-------------|
 | **Google Gemini** | gemini-2.5-flash | Android UI (Google makes Android), fast, cheap | `GEMINI_API_KEY` |
 | **OpenAI** | gpt-4o | General vision tasks | `OPENAI_API_KEY` |
+| **OpenRouter** | qwen/qwen3-vl-30b-a3b-instruct | Multimodal screen understanding | `OPENROUTER_API_KEY` |
 | **Anthropic** | claude-sonnet-4-20250514 | Structured reasoning | `ANTHROPIC_API_KEY` |
 | **Ollama** | qwen2.5vl:72b, gemma4:e4b | Local/offline, no API key needed | `OLLAMA_MODEL` |
 
@@ -235,6 +239,9 @@ GEMINI_MODEL=gemini-2.5-flash       # default
 
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o                 # default
+
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=qwen/qwen3-vl-30b-a3b-instruct  # default
 
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-4-20250514

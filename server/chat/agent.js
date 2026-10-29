@@ -1,6 +1,6 @@
 /**
  * AI Agent: perceive → reason → act loop.
- * Supports OpenAI, Anthropic, and Google Gemini as LLM providers.
+ * Supports OpenAI, OpenRouter, Anthropic, Google Gemini, and Ollama.
  */
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
@@ -54,7 +54,7 @@ Rules:
 
 /**
  * Detect which LLM provider to use.
- * Priority: Gemini > OpenAI > Anthropic
+ * Priority: Gemini > OpenAI > OpenRouter > Anthropic > Ollama
  */
 function getProvider() {
   if (process.env.GEMINI_API_KEY) return 'gemini';
@@ -62,6 +62,7 @@ function getProvider() {
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (process.env.OLLAMA_MODEL) return 'ollama';
   return null;
+  if (process.env.OPENROUTER_API_KEY) return 'openrouter';
 }
 
 export class Agent {
@@ -86,7 +87,7 @@ export class Agent {
   async init() {
     this._provider = getProvider();
     if (!this._provider) {
-      throw new Error('No API key set. Add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY to .env');
+      throw new Error('No AI provider configured. Add an API key or configure OLLAMA_MODEL in .env');
     }
 
     if (this._provider === 'gemini') {
@@ -96,6 +97,8 @@ export class Agent {
     } else if (this._provider === 'anthropic') {
       this._anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     } else if (this._provider === 'ollama') {
+    } else if (this._provider === 'openrouter') {
+      this._openai = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY });
       const base = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/$/, '');
       this._ollama = new OpenAI({ baseURL: `${base}/v1`, apiKey: 'ollama' });
     }
@@ -341,7 +344,7 @@ export class Agent {
           return;
         }
         if (msg.includes('404') || msg.includes('not found')) {
-          this.onStep({ type: 'error', step: step + 1, message: 'Model not found. Check GEMINI_MODEL / OPENAI_MODEL in .env.' });
+          this.onStep({ type: 'error', step: step + 1, message: 'Model not found. Check your provider model configuration.' });
           this.running = false;
           return;
         }
@@ -394,6 +397,7 @@ export class Agent {
     // Create chat session (multi-turn)
     if (!this._geminiChat) {
       this._geminiChat = this._gemini.chats.create({
+      case 'openrouter': return this._callOpenAI(screenText, screenshotBase64);
         model,
         config: {
           systemInstruction: SYSTEM_PROMPT,
@@ -419,10 +423,12 @@ export class Agent {
     this._messages.push({ role: 'user', content });
     if (this._messages.length > 14) this._messages.splice(0, 2);
 
-    const model = process.env.OPENAI_MODEL || 'gpt-4o';
+    const model = this._provider === 'openrouter'
+      ? (process.env.OPENROUTER_MODEL || 'qwen/qwen3-vl-30b-a3b-instruct')
+      : (process.env.OPENAI_MODEL || 'gpt-4o');
     const response = await this._openai.chat.completions.create({
       model,
-      max_completion_tokens: 1024,
+      ...(this._provider === 'openrouter' ? { max_tokens: 1024 } : { max_completion_tokens: 1024 }),
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...this._messages],
     }, { signal: this._abortController?.signal });
 

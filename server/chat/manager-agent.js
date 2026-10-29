@@ -36,6 +36,7 @@ Rules:
 function getProvider() {
   if (process.env.GEMINI_API_KEY) return 'gemini';
   if (process.env.OPENAI_API_KEY) return 'openai';
+  if (process.env.OPENROUTER_API_KEY) return 'openrouter';
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (process.env.OLLAMA_MODEL) return 'ollama';
   return null;
@@ -60,13 +61,15 @@ export class ManagerAgent {
   async init() {
     this._provider = getProvider();
     if (!this._provider) {
-      throw new Error('No API key set. Add GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY to .env');
+      throw new Error('No AI provider configured. Add an API key or configure OLLAMA_MODEL in .env');
     }
 
     if (this._provider === 'gemini') {
       this._gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     } else if (this._provider === 'openai') {
       this._openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    } else if (this._provider === 'openrouter') {
+      this._openai = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY });
     } else if (this._provider === 'anthropic') {
       this._anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     } else if (this._provider === 'ollama') {
@@ -325,6 +328,7 @@ A screenshot of the current screen is attached. Analyze the current state and re
     switch (this._provider) {
       case 'gemini':    return this._callGemini(userPrompt, screenshotBase64);
       case 'openai':    return this._callOpenAI(userPrompt, screenshotBase64);
+      case 'openrouter': return this._callOpenAI(userPrompt, screenshotBase64);
       case 'anthropic': return this._callAnthropic(userPrompt, screenshotBase64);
       case 'ollama':    return this._callOllama(userPrompt, screenshotBase64);
     }
@@ -359,10 +363,12 @@ A screenshot of the current screen is attached. Analyze the current state and re
       });
     }
 
-    const model = process.env.OPENAI_MODEL || 'gpt-4o';
+    const model = this._provider === 'openrouter'
+      ? (process.env.OPENROUTER_MODEL || 'qwen/qwen3-vl-30b-a3b-instruct')
+      : (process.env.OPENAI_MODEL || 'gpt-4o');
     const response = await this._openai.chat.completions.create({
       model,
-      max_completion_tokens: 2048,
+      ...(this._provider === 'openrouter' ? { max_tokens: 2048 } : { max_completion_tokens: 2048 }),
       messages: [
         { role: 'system', content: MANAGER_SYSTEM_PROMPT },
         { role: 'user', content },

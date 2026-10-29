@@ -39,6 +39,8 @@ const btnChatHelp = document.getElementById('btn-chat-help');
 const btnChatClear = document.getElementById('btn-chat-clear');
 const btnHome = document.getElementById('btn-home');
 const btnLogout = document.getElementById('btn-logout');
+const aiProvider = document.getElementById('ai-provider');
+const aiModel = document.getElementById('ai-model');
 const btnRecordStart = document.getElementById('btn-record-start');
 const btnRecordStop = document.getElementById('btn-record-stop');
 const btnRecordDownload = document.getElementById('btn-record-download');
@@ -418,18 +420,27 @@ function startLaunchSessionChecks() {
 
 // --- WebSocket Events ---
 
-ws.on('connected', () => {
+ws.on('connected', async () => {
   setStatus('no-device', 'No device');
   ws.send({ type: 'list-devices' });
   ws.send({ type: 'get-capabilities' });
   // Re-apply API config from localStorage in case server restarted
   const saved = JSON.parse(localStorage.getItem('mobiclaw-config') || '{}');
   if (saved.provider === 'ollama' || saved.apiKey) {
-    fetch('/api/config', {
+    await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: saved.provider, apiKey: saved.apiKey, model: saved.model, baseUrl: saved.baseUrl }),
     }).catch(() => {});
+  }
+  try {
+    const config = await fetch('/api/config').then(response => response.json());
+    const names = { gemini: 'Google Gemini', openai: 'OpenAI', openrouter: 'OpenRouter', anthropic: 'Anthropic', ollama: 'Ollama' };
+    aiProvider.textContent = names[config.provider] || 'No AI provider configured';
+    aiModel.textContent = config.model || '';
+  } catch {
+    aiProvider.textContent = 'AI configuration unavailable';
+    aiModel.textContent = '';
   }
 });
 

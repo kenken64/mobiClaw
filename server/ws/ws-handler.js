@@ -388,7 +388,7 @@ export function createWsHandler(server) {
             goal: agentGoal,
             serial,
             agentMode,
-            provider: process.env.GEMINI_API_KEY ? 'gemini' : process.env.OPENAI_API_KEY ? 'openai' : process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OLLAMA_MODEL ? 'ollama' : 'unknown',
+            provider: process.env.GEMINI_API_KEY ? 'gemini' : process.env.OPENAI_API_KEY ? 'openai' : process.env.OPENROUTER_API_KEY ? 'openrouter' : process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OLLAMA_MODEL ? 'ollama' : 'unknown',
           });
 
           async function finalizeRecorder() {

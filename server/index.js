@@ -61,6 +61,7 @@ app.post('/api/config', (req, res) => {
       // Clear other providers
       delete process.env.GEMINI_API_KEY;
       delete process.env.OPENAI_API_KEY;
+      delete process.env.OPENROUTER_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
       process.env.OLLAMA_MODEL = model || 'qwen2.5vl:72b';
       process.env.OLLAMA_BASE_URL = baseUrl || 'http://localhost:11434';
@@ -68,7 +69,7 @@ app.post('/api/config', (req, res) => {
       return res.json({ success: true });
     }
 
-    const keyMap = { gemini: 'GEMINI', openai: 'OPENAI', anthropic: 'ANTHROPIC' };
+    const keyMap = { gemini: 'GEMINI', openai: 'OPENAI', openrouter: 'OPENROUTER', anthropic: 'ANTHROPIC' };
     const prefix = keyMap[provider];
     if (!prefix) {
       return res.json({ success: false, error: 'Invalid provider' });
@@ -82,7 +83,7 @@ app.post('/api/config', (req, res) => {
     }
 
     // Clear other providers so getProvider() picks the right one
-    const allPrefixes = ['GEMINI', 'OPENAI', 'ANTHROPIC'];
+    const allPrefixes = ['GEMINI', 'OPENAI', 'OPENROUTER', 'ANTHROPIC'];
     for (const p of allPrefixes) {
       if (p !== prefix) delete process.env[`${p}_API_KEY`];
     }
@@ -90,7 +91,7 @@ app.post('/api/config', (req, res) => {
 
     // Store in process.env only (in-memory, not persisted to disk)
     process.env[`${prefix}_API_KEY`] = keyToUse;
-    process.env[`${prefix}_MODEL`] = model;
+    if (model) process.env[`${prefix}_MODEL`] = model;
 
     console.log(`[Config] ${provider} config updated in memory (model: ${model})`);
     res.json({ success: true });
@@ -112,6 +113,10 @@ app.get('/api/config', (req, res) => {
   } else if (process.env.OPENAI_API_KEY) {
     provider = 'openai';
     model = process.env.OPENAI_MODEL || 'gpt-4o';
+    keySet = true;
+  } else if (process.env.OPENROUTER_API_KEY) {
+    provider = 'openrouter';
+    model = process.env.OPENROUTER_MODEL || 'qwen/qwen3-vl-30b-a3b-instruct';
     keySet = true;
   } else if (process.env.ANTHROPIC_API_KEY) {
     provider = 'anthropic';

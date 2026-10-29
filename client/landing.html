@@ -49,10 +49,15 @@
         </div>
         <span class="text-lg font-bold tracking-tight">MobiClaw</span>
       </div>
+      <div class="flex items-center gap-4">
+      <select data-language-switch aria-label="Language" class="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground">
+        <option value="en">English</option><option value="zh">中文</option>
+      </select>
       <a href="https://github.com/kenken64/MobiClaw" target="_blank" class="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
         <i data-lucide="github" class="w-4 h-4"></i>
         GitHub
       </a>
+      </div>
     </nav>
 
     <!-- Hero -->
@@ -90,6 +95,7 @@
             <select id="provider-select" class="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-purple-500/30">
               <option value="gemini" selected>Google Gemini (Recommended)</option>
               <option value="openai">OpenAI</option>
+              <option value="openrouter">OpenRouter</option>
               <option value="anthropic">Anthropic</option>
               <option value="ollama">Ollama (Local)</option>
             </select>
@@ -162,7 +168,7 @@
             <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i>
           </div>
           <h3 class="text-xs font-semibold mb-1">Multi-LLM</h3>
-          <p class="text-[11px] text-muted-foreground">Gemini, GPT, or Claude &mdash; pick the best model for you</p>
+          <p class="text-[11px] text-muted-foreground">Gemini, GPT, Qwen, or Claude &mdash; pick the best model for you</p>
         </div>
       </div>
     </main>
@@ -173,6 +179,7 @@
     </footer>
   </div>
 
+  <script src="js/i18n.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
       lucide.createIcons();
@@ -199,6 +206,9 @@
           { value: 'gpt-5.4', label: 'gpt-5.4 (Latest)' },
           { value: 'gpt-4o-mini', label: 'gpt-4o-mini (Budget)' },
         ],
+        openrouter: [
+          { value: 'qwen/qwen3-vl-30b-a3b-instruct', label: 'Qwen3 VL 30B A3B Instruct' },
+        ],
         anthropic: [
           { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (Recommended)' },
           { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Fast)' },
@@ -215,6 +225,7 @@
         gemini: 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" class="text-purple-400 hover:underline">aistudio.google.com/apikey</a>',
         openai: 'Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" class="text-purple-400 hover:underline">platform.openai.com/api-keys</a>',
         anthropic: 'Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-purple-400 hover:underline">console.anthropic.com</a>',
+        openrouter: 'Get a key at <a href="https://openrouter.ai/settings/keys" target="_blank" class="text-purple-400 hover:underline">openrouter.ai/settings/keys</a>',
         ollama: 'Make sure Ollama is running locally: <code class="text-purple-300">ollama serve</code>',
       };
 
@@ -222,6 +233,7 @@
         gemini: 'AIzaSy...',
         openai: 'sk-...',
         anthropic: 'sk-ant-...',
+        openrouter: 'sk-or-...',
         ollama: '',
       };
 
@@ -267,7 +279,15 @@
         const preferredModel = (provider === serverProvider && serverModel)
           ? serverModel
           : (saved.provider === provider ? saved.model : null);
-        if (preferredModel) modelSelect.value = preferredModel;
+        if (preferredModel) {
+          if (!models[provider].some(m => m.value === preferredModel)) {
+            const opt = document.createElement('option');
+            opt.value = preferredModel;
+            opt.textContent = preferredModel;
+            modelSelect.appendChild(opt);
+          }
+          modelSelect.value = preferredModel;
+        }
 
         if (!isOllama) {
           const hasLocalKey = !!(saved.apiKey && saved.provider === provider);
