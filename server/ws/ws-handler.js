@@ -544,11 +544,13 @@ export function createWsHandler(server) {
         case 'wifi-disconnect': {
           const result = await disconnectDevice(msg.serial);
           sendJson(ws, { type: 'wifi-disconnect-result', ...result });
-          const devices = await listDevices();
-          sendJson(ws, {
-            type: 'device-list',
-            devices: devices.map(d => ({ serial: d.id, type: d.type })),
-          });
+          if (result.success) {
+            const devices = await listDevices();
+            sendJson(ws, {
+              type: 'device-list',
+              devices: devices.map(d => ({ serial: d.id, type: d.type })),
+            });
+          }
           break;
         }
 

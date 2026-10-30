@@ -127,6 +127,8 @@ Open **http://localhost:3000** in Chrome/Edge.
 
 For a phone plugged into the browser machine, use **Browser USB ADB** in the sidebar. This path talks to the Android device through WebUSB, so it works even when the Node server cannot see local USB devices. WebUSB requires Chrome/Edge on `https://` or `localhost`, USB debugging enabled, and approval of the Android RSA debugging prompt.
 
+Wireless ADB runs on the MobiClaw server, so install Android SDK Platform-Tools on that machine and ensure `adb` is on its `PATH`, or set `ADB_PATH` to its executable. Railpack deployments install the `adb` package in the runtime image automatically. The server must also be able to reach the phone's wireless-debugging IP and port; a hosted server normally cannot reach a phone's private Wi-Fi address. Run MobiClaw on the same network as the phone or use a secure private network connecting them. Browser USB ADB is available for manual control when the server cannot reach the phone.
+
 ## Usage
 
 ### Screen Mirroring

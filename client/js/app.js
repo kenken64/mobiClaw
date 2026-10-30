@@ -659,9 +659,11 @@ ws.on('wifi-pair-result', (msg) => {
 
 ws.on('wifi-disconnect-result', (msg) => {
   showWifiStatus(msg.success, msg.message);
-  wifiConnectedSerial = null;
-  wifiConnectionTarget = null;
-  updateWifiButton();
+  if (msg.success) {
+    wifiConnectedSerial = null;
+    wifiConnectionTarget = null;
+    updateWifiButton();
+  }
 });
 
 // Binary frame handler (for H.264/PNG modes, not WebRTC)

@@ -12,9 +12,16 @@ function getAdbPath() {
   return config.adbPath || 'adb';
 }
 
+function adbErrorMessage(err) {
+  if (err?.code === 'ENOENT') {
+    return 'ADB executable not found on the MobiClaw server. Install Android SDK Platform-Tools or set ADB_PATH to the adb executable, then restart the server.';
+  }
+  return err?.message || 'ADB command failed.';
+}
+
 export function getClient() {
   if (!client) {
-    client = Adb.createClient();
+    client = Adb.createClient({ bin: getAdbPath() });
   }
   return client;
 }
@@ -56,7 +63,12 @@ export function trackDevices(callback) {
 export async function connectDevice(host, port = 5555) {
   const target = `${host}:${port}`;
   console.log(`[ADB] Connecting to ${target}...`);
-  const { stdout, stderr } = await execFileAsync(getAdbPath(), ['connect', target]);
+  let stdout, stderr;
+  try {
+    ({ stdout, stderr } = await execFileAsync(getAdbPath(), ['connect', target]));
+  } catch (err) {
+    return { success: false, message: adbErrorMessage(err), host, port, target };
+  }
   const output = (stdout + stderr).trim();
   console.log(`[ADB] Connect result: ${output}`);
   if (output.includes('connected') || output.includes('already connected')) {
@@ -81,7 +93,7 @@ export async function pairDevice(host, port, code) {
       if (output.includes('Successfully paired')) {
         return resolve({ success: true, message: 'Successfully paired! Now connect using the connection port.', host, port, target });
       }
-      resolve({ success: false, message: output || (err ? err.message : 'Pairing failed'), host, port, target });
+      resolve({ success: false, message: output || (err ? adbErrorMessage(err) : 'Pairing failed'), host, port, target });
     });
   });
 }
@@ -91,7 +103,12 @@ export async function pairDevice(host, port, code) {
  * @param {string} serial - Device serial (ip:port)
  */
 export async function disconnectDevice(serial) {
-  const { stdout, stderr } = await execFileAsync(getAdbPath(), ['disconnect', serial]);
+  let stdout, stderr;
+  try {
+    ({ stdout, stderr } = await execFileAsync(getAdbPath(), ['disconnect', serial]));
+  } catch (err) {
+    return { success: false, message: adbErrorMessage(err), serial };
+  }
   const output = (stdout + stderr).trim();
   console.log(`[ADB] Disconnect result: ${output}`);
   return { success: true, message: output, serial };

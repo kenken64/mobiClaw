@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { existsSync } from 'fs';
 
 function resolveAdbPath() {
-  if (process.env.ADB_PATH && existsSync(process.env.ADB_PATH)) {
+  if (process.env.ADB_PATH) {
     return process.env.ADB_PATH;
   }
   // Common Windows locations
